@@ -70,41 +70,38 @@ async def fetch_whoisds(fetch_date: date | None = None) -> list[DomainRecord]:
     # WhoisDS encodes date as base64 in the URL for their download link
     import base64
     encoded = base64.b64encode(f"{date_str}.zip".encode()).decode()
-    url = f"https://www.whoisds.com/whois-database/newly-registered-domains/{encoded}/nrd"
+    url = f"https://www.whoisds.com//whois-database/newly-registered-domains/{encoded}/nrd"
 
-    logger.info(f"[WhoisDS] Fetching domains for {date_str}")
+    logger.info(f"[WhoisDS] Fetching domains for {date_str} — URL: {url}")
 
     try:
-        async with _make_client() as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
+        import requests as req_lib
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = req_lib.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
 
-            content = resp.content
+        content = resp.content
+        logger.info(f"[WhoisDS] Downloaded {len(content):,} bytes")
 
-            # The response is a ZIP containing a text file with one domain per line
-            records: list[DomainRecord] = []
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                for filename in zf.namelist():
-                    with zf.open(filename) as f:
-                        for raw_line in f:
-                            line = raw_line.decode("utf-8", errors="ignore").strip()
-                            if not line or line.startswith("#"):
-                                continue
-                            record = _parse_domain_line(line, source="whoisds")
-                            if record:
-                                records.append(record)
+        records: list[DomainRecord] = []
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            txt_files = [f for f in zf.namelist() if not f.endswith("/")]
+            logger.info(f"[WhoisDS] ZIP contains: {txt_files}")
+            for fname in txt_files:
+                with zf.open(fname) as f:
+                    for raw_line in f:
+                        line = raw_line.decode("utf-8", errors="ignore").strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        record = _parse_domain_line(line, source="whoisds")
+                        if record:
+                            records.append(record)
 
-            logger.info(f"[WhoisDS] Fetched {len(records):,} domains")
-            return records
+        logger.info(f"[WhoisDS] Parsed {len(records):,} domains")
+        return records
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[WhoisDS] HTTP error {e.response.status_code}: {e}")
-        return []
-    except zipfile.BadZipFile:
-        logger.error("[WhoisDS] Response was not a valid ZIP file")
-        return []
     except Exception as e:
-        logger.error(f"[WhoisDS] Unexpected error: {e}")
+        logger.error(f"[WhoisDS] Error: {type(e).__name__}: {e}")
         return []
 
 

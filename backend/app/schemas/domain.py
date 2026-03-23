@@ -15,8 +15,8 @@ class DomainPublic(DomainBase):
     id: int
     check_status: DomainStatus
     seo_score: Optional[float] = None
-    fetched_date: datetime
-    created_at: datetime
+    fetched_date: Optional[datetime] = None   # Optional - can be null
+    created_at: Optional[datetime] = None     # Optional - can be null
 
     model_config = {"from_attributes": True}
 
@@ -39,7 +39,7 @@ class DomainFilter(BaseModel):
 
 
 class FetchTriggerRequest(BaseModel):
-    fetch_date: Optional[str] = None   # YYYY-MM-DD, defaults to today
+    fetch_date: Optional[str] = None
 
     @field_validator("fetch_date")
     @classmethod
@@ -54,7 +54,7 @@ class FetchTriggerRequest(BaseModel):
 
 class FetchRunResponse(BaseModel):
     status: str
-    date: str
+    date: Optional[str] = None
     total_fetched: int
     new_domains: int
     duplicates_skipped: int
@@ -64,7 +64,7 @@ class FetchRunResponse(BaseModel):
 
 class FetchStatusResponse(BaseModel):
     task_id: str
-    status: str          # PENDING | STARTED | SUCCESS | FAILURE | RETRY
+    status: str
     result: Optional[dict] = None
     error: Optional[str] = None
 

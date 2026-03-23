@@ -7,7 +7,7 @@ import logging
 
 from app.core.config import settings
 from app.db.session import Base, engine, check_db_connection
-from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports
+from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports, fetch
 
 logging.basicConfig(
     level=logging.INFO if not settings.DEBUG else logging.DEBUG,
@@ -29,9 +29,8 @@ def init_sentry():
                 integrations=[FastApiIntegration(), SqlalchemyIntegration()],
                 traces_sample_rate=0.1,
             )
-            logger.info("Sentry initialized")
         except ImportError:
-            logger.warning("sentry-sdk not installed — skipping Sentry init")
+            pass
 
 
 @asynccontextmanager
@@ -75,16 +74,17 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="SEO Automation Tool API",
     version="1.0.0",
-    docs_url="/api/docs" if settings.APP_ENV != "production" else None,
-    redoc_url="/api/redoc" if settings.APP_ENV != "production" else None,
-    openapi_url="/api/openapi.json" if settings.APP_ENV != "production" else None,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 
+# ─── CORS — allow everything for local development ────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,        # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -93,7 +93,9 @@ app.add_middleware(
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
-    detail = "; ".join(f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors)
+    detail = "; ".join(
+        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"success": False, "detail": detail},
@@ -103,7 +105,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(status_code=500, content={"success": False, "detail": "Internal server error"})
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "detail": str(exc)},
+    )
 
 
 app.include_router(auth.router,      prefix="/api/v1")
@@ -114,6 +119,7 @@ app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(watchlist.router, prefix="/api/v1")
 app.include_router(alerts.router,    prefix="/api/v1")
 app.include_router(reports.router,   prefix="/api/v1")
+app.include_router(fetch.router,     prefix="/api/v1")
 
 
 @app.get("/api/health", tags=["Health"])

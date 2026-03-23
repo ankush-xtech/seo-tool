@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from pydantic import AnyHttpUrl, validator
 from typing import List, Optional
 import secrets
 
@@ -15,9 +14,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Database
-    DB_HOST: str = "localhost"
+    DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
-    DB_USER: str = "seo_user"
+    DB_USER: str = "root"
     DB_PASSWORD: str = ""
     DB_NAME: str = "seo_automation"
 
@@ -32,12 +31,15 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    # CORS — allow all origins in dev so localhost:5173 always works
+    ALLOWED_ORIGINS: str = "*"
 
     @property
     def CORS_ORIGINS(self) -> List[str]:
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+        raw = self.ALLOWED_ORIGINS.strip()
+        if raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     # Email
     SMTP_HOST: Optional[str] = None
@@ -54,10 +56,10 @@ class Settings(BaseSettings):
     FIRST_ADMIN_EMAIL: str = "admin@yourdomain.com"
     FIRST_ADMIN_PASSWORD: str = "Admin@123!"
 
-    # ─── Monitoring ───────────────────────────────────────────────
+    # Monitoring
     SENTRY_DSN: Optional[str] = None
 
-    # ─── Domain Fetcher (M2) ──────────────────────────────────────
+    # Domain Fetcher
     DOMAINBIGDATA_API_KEY: Optional[str] = None
     ICANN_CZDS_TOKEN: Optional[str] = None
 
