@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     FIRST_ADMIN_EMAIL: str = "admin@yourdomain.com"
     FIRST_ADMIN_PASSWORD: str = "Admin@123!"
 
+    # ─── Monitoring ───────────────────────────────────────────────
+    SENTRY_DSN: Optional[str] = None
+
     # ─── Domain Fetcher (M2) ──────────────────────────────────────
     DOMAINBIGDATA_API_KEY: Optional[str] = None
     ICANN_CZDS_TOKEN: Optional[str] = None

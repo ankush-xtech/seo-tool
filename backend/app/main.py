@@ -9,37 +9,49 @@ from app.core.config import settings
 from app.db.session import Base, engine, check_db_connection
 from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO if not settings.DEBUG else logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO if not settings.DEBUG else logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
-# ─── Lifespan ─────────────────────────────────────────────────────────────────
+def init_sentry():
+    sentry_dsn = getattr(settings, "SENTRY_DSN", None)
+    if sentry_dsn and settings.APP_ENV == "production":
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.fastapi import FastApiIntegration
+            from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                environment=settings.APP_ENV,
+                integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+                traces_sample_rate=0.1,
+            )
+            logger.info("Sentry initialized")
+        except ImportError:
+            logger.warning("sentry-sdk not installed — skipping Sentry init")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     logger.info(f"Starting {settings.APP_NAME} [{settings.APP_ENV}]")
-
+    init_sentry()
     if check_db_connection():
         logger.info("✅ Database connected")
-        # Create tables if they don't exist (use Alembic in production)
         Base.metadata.create_all(bind=engine)
-        # Bootstrap admin user if not exists
         bootstrap_admin()
     else:
         logger.error("❌ Database connection failed!")
-
     yield
-    # Shutdown
     logger.info("Shutting down...")
 
 
 def bootstrap_admin():
-    """Create default admin account on first run."""
     from app.db.session import SessionLocal
     from app.models.models import User, UserRole
     from app.core.security import hash_password
-
     db = SessionLocal()
     try:
         admin = db.query(User).filter(User.email == settings.FIRST_ADMIN_EMAIL).first()
@@ -59,18 +71,16 @@ def bootstrap_admin():
         db.close()
 
 
-# ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
-    description="SEO Automation Tool API — daily domain fetcher + SEO analysis engine",
+    description="SEO Automation Tool API",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url="/api/docs" if settings.APP_ENV != "production" else None,
+    redoc_url="/api/redoc" if settings.APP_ENV != "production" else None,
+    openapi_url="/api/openapi.json" if settings.APP_ENV != "production" else None,
     lifespan=lifespan,
 )
 
-# ─── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -80,31 +90,32 @@ app.add_middleware(
 )
 
 
-# ─── Exception Handlers ───────────────────────────────────────────────────────
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
-    detail = "; ".join(
-        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors
-    )
+    detail = "; ".join(f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"success": False, "detail": detail}
+        content={"success": False, "detail": detail},
     )
 
 
-# ─── Routers ──────────────────────────────────────────────────────────────────
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(users.router, prefix="/api/v1")
-app.include_router(domains.router, prefix="/api/v1")
-app.include_router(seo.router, prefix="/api/v1")
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content={"success": False, "detail": "Internal server error"})
+
+
+app.include_router(auth.router,      prefix="/api/v1")
+app.include_router(users.router,     prefix="/api/v1")
+app.include_router(domains.router,   prefix="/api/v1")
+app.include_router(seo.router,       prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(watchlist.router, prefix="/api/v1")
-app.include_router(alerts.router, prefix="/api/v1")
-app.include_router(reports.router, prefix="/api/v1")
+app.include_router(alerts.router,    prefix="/api/v1")
+app.include_router(reports.router,   prefix="/api/v1")
 
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])
 def health_check():
     db_ok = check_db_connection()
@@ -113,9 +124,10 @@ def health_check():
         "app": settings.APP_NAME,
         "env": settings.APP_ENV,
         "db": "connected" if db_ok else "unreachable",
+        "version": "1.0.0",
     }
 
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"message": f"{settings.APP_NAME} API is running. Visit /api/docs"}
+    return {"message": f"{settings.APP_NAME} API is running."}
