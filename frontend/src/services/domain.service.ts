@@ -60,6 +60,23 @@ export interface TaskStatus {
   error: string | null;
 }
 
+export interface ImportReportRow {
+  domain: string;
+  status: "imported" | "duplicate" | "invalid";
+  reason?: string | null;
+}
+
+export interface ImportCsvResponse {
+  filename: string;
+  total_rows: number;
+  valid_rows: number;
+  imported_count: number;
+  duplicate_count: number;
+  invalid_count: number;
+  report_rows: ImportReportRow[];
+  report_truncated: boolean;
+}
+
 const DomainService = {
   async list(filters: DomainFilters = {}): Promise<DomainList> {
     const { data } = await api.get("/domains/", { params: filters });
@@ -91,8 +108,45 @@ const DomainService = {
     Object.entries(filters).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
     });
-    const base = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+    params.set("limit", "2000");
+    const base = (import.meta as any)?.env?.VITE_API_URL || "http://localhost:8000/api/v1";
     return `${base}/domains/export/csv?${params}`;
+  },
+
+  async exportCsv(filters: Omit<DomainFilters, "page" | "per_page" | "sort_by" | "sort_dir"> = {}) {
+    const params: Record<string, string> = {};
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") params[k] = String(v);
+    });
+    params.limit = "2000";
+
+    const response = await api.get("/domains/export/csv", {
+      params,
+      responseType: "blob",
+    });
+
+    const disposition = response.headers["content-disposition"] as string | undefined;
+    const filenameMatch = disposition?.match(/filename=([^;]+)/i);
+    const filename = filenameMatch?.[1]?.replace(/"/g, "") || "domains_export.csv";
+
+    const blob = new Blob([response.data], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+
+  async importCsv(file: File): Promise<ImportCsvResponse> {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await api.post("/domains/import/csv", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
   },
 };
 

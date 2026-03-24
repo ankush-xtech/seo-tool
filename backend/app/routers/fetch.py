@@ -253,6 +253,9 @@ def check_all_pending_domains_thread():
         try:
             batch = db.query(Domain).filter(
                 Domain.check_status == DomainStatus.pending
+            ).order_by(
+                Domain.fetched_date.desc(),
+                Domain.id.desc(),
             ).limit(BATCH).all()
 
             if not batch:

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import DomainService, { DomainFilters, DomainStatus, Domain } from "../../services/domain.service";
+import DomainService, { DomainFilters, DomainStatus, Domain, ImportCsvResponse } from "../../services/domain.service";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
 
@@ -38,6 +38,158 @@ interface FetchResult {
   status: string; message: string; fetch_date: string;
   total_fetched: number; new_domains: number; duplicates_skipped: number;
   duration_seconds: number; seo_check_count?: number;
+}
+
+function ImportCsvModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [result, setResult] = useState<ImportCsvResponse | null>(null);
+  const [error, setError] = useState("");
+
+  const getImportErrorMessage = (err: any) => {
+    const status = err?.response?.status;
+    const detail = err?.response?.data?.detail;
+
+    if (status === 404) {
+      return "Import API not found (404): backend is running old code. Restart backend server and try again.";
+    }
+    if (status === 400) {
+      return detail || "Invalid CSV file. Ensure first column contains domain names.";
+    }
+    if (status === 401) {
+      return "Session expired. Please login again.";
+    }
+    if (status === 413) {
+      return "CSV file is too large. Please upload a smaller file.";
+    }
+    return detail || `Import failed${status ? ` (HTTP ${status})` : ""}`;
+  };
+
+  const handleImport = async () => {
+    if (!file) return;
+    const isCsv = file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv";
+    if (!isCsv) {
+      setError("Invalid file type. Please select a .csv file.");
+      return;
+    }
+
+    setIsImporting(true);
+    setError("");
+    setResult(null);
+    try {
+      const data = await DomainService.importCsv(file);
+      setResult(data);
+      onDone();
+    } catch (err: any) {
+      setError(getImportErrorMessage(err));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !isImporting && onClose()}>
+      <div className="modal" style={{ maxWidth: 680 }}>
+        <h2 className="modal-title">Import CSV Domains</h2>
+
+        {!result ? (
+          <>
+            <div style={{ background: "var(--bg3)", borderRadius: "var(--radius-sm)", padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "var(--text-muted)" }}>
+              Upload a CSV where the first column contains domain names.
+              Header is optional (for example: <strong style={{ color: "var(--text)" }}>domain</strong>).
+            </div>
+
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const selected = e.target.files?.[0] || null;
+                setFile(selected);
+                if (!selected) {
+                  setError("");
+                  return;
+                }
+                const isCsv = selected.name.toLowerCase().endsWith(".csv") || selected.type === "text/csv";
+                setError(isCsv ? "" : "Invalid file type. Please select a .csv file.");
+              }}
+              disabled={isImporting}
+              style={{ marginBottom: 12 }}
+            />
+
+            {file && (
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+                Selected: <strong style={{ color: "var(--text)" }}>{file.name}</strong>
+              </div>
+            )}
+
+            {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={onClose} disabled={isImporting}>Cancel</button>
+              <button className="btn-primary" style={{ width: "auto", padding: "0 20px" }} onClick={handleImport} disabled={!file || isImporting}>
+                {isImporting ? "Importing…" : "Import CSV"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="alert alert-success" style={{ marginBottom: 14 }}>
+              Import completed for {result.filename}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 8, marginBottom: 14 }}>
+              {[
+                { label: "Rows", value: result.total_rows },
+                { label: "Valid", value: result.valid_rows },
+                { label: "Imported", value: result.imported_count },
+                { label: "Duplicate", value: result.duplicate_count },
+                { label: "Invalid", value: result.invalid_count },
+              ].map((item) => (
+                <div key={item.label} style={{ background: "var(--bg3)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+                  <div style={{ fontSize: 11, color: "var(--text-hint)", marginBottom: 3 }}>{item.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 600 }}>{item.value.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Import report (first {result.report_rows.length} rows)</div>
+            <div style={{ maxHeight: 260, overflowY: "auto", border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", marginBottom: 12 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Domain</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.report_rows.map((row, idx) => (
+                    <tr key={`${row.domain}-${idx}`}>
+                      <td>{row.domain}</td>
+                      <td>{row.status}</td>
+                      <td>{row.reason || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {result.report_truncated && (
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                Report truncated to first 500 rows.
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn-primary" style={{ width: "auto", padding: "0 20px" }} onClick={onClose}>
+                Done
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FetchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -305,7 +457,7 @@ function CheckProgressBar({ onRecentlyChecked }: { onRecentlyChecked?: (items: R
       const { data } = await api.get(`/fetch/check-progress${params}`);
       return data;
     },
-    refetchInterval: (data) => (data?.running ? 2000 : 10000),
+    refetchInterval: (query) => ((query.state.data as any)?.running ? 2000 : 10000),
   });
 
   // Forward recently checked domains to parent for live table updates
@@ -395,6 +547,7 @@ export default function DomainsPage() {
     page: 1, per_page: 50, sort_by: "fetched_date", sort_dir: "desc",
   });
   const [showFetchModal, setShowFetchModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -509,8 +662,7 @@ export default function DomainsPage() {
             </button>
           )}
           <button className="btn-secondary" onClick={() => {
-            const url = DomainService.getExportUrl({ tld: filters.tld, status: filters.status });
-            window.open(url, "_blank");
+            DomainService.exportCsv({ tld: filters.tld, status: filters.status, min_score: filters.min_score, date_from: filters.date_from, date_to: filters.date_to });
           }}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 1v8M4 6l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2"
@@ -518,6 +670,11 @@ export default function DomainsPage() {
             </svg>
             Export CSV
           </button>
+          {isAdmin && (
+            <button className="btn-secondary" onClick={() => setShowImportModal(true)}>
+              Import CSV
+            </button>
+          )}
           {isAdmin && (
             <button className="btn-primary" style={{ width: "auto", padding: "0 16px" }}
               onClick={() => setShowFetchModal(true)}>
@@ -816,6 +973,9 @@ export default function DomainsPage() {
 
       {showFetchModal && (
         <FetchModal onClose={() => setShowFetchModal(false)} onDone={handleFetchDone} />
+      )}
+      {showImportModal && (
+        <ImportCsvModal onClose={() => setShowImportModal(false)} onDone={handleFetchDone} />
       )}
       {selectedDomain && (
         <DomainDetailDrawer domain={selectedDomain} onClose={() => setSelectedDomain(null)} />

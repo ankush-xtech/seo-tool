@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/projects/seo-tool -type f \\\\\\(-name *.md -o -name LICENSE* -o -name SECURITY* \\\\\\))",
+      "Bash(grep -r \"raw\\\\|execute\\\\|exec\\\\|eval\\\\|__import__\" /c/projects/seo-tool/backend/app --include=*.py)"
+    ]
+  }
+}

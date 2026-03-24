@@ -112,6 +112,7 @@ def queue_pending_seo_checks(self, limit: int = 5000):
         pending = (
             db.query(Domain.id, Domain.name)
             .filter(Domain.check_status == DomainStatus.pending)
+            .order_by(Domain.fetched_date.desc(), Domain.id.desc())
             .limit(limit)
             .all()
         )

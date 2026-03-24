@@ -1,18 +1,34 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
+import csv
+import io
+import re
+
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.db.session import get_db
 from app.middleware.deps import get_current_user, require_admin
-from app.models.models import Domain, DomainStatus, User
+from app.models.models import Domain, DomainStatus, User, AuditLog, AuditAction
 from app.schemas.domain import (
     DomainPublic, DomainList, FetchTriggerRequest,
-    FetchRunResponse, FetchStatusResponse, DomainStatsResponse
+    FetchRunResponse, FetchStatusResponse, DomainStatsResponse, DomainImportResponse
 )
 from app.services.domain_storage import get_domain_stats
 
 router = APIRouter(prefix="/domains", tags=["Domains"])
+
+DOMAIN_REGEX = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def normalize_domain(raw: str) -> str:
+    value = (raw or "").strip().lower()
+    value = re.sub(r"^https?://", "", value)
+    value = value.split("/")[0].split(":")[0].strip()
+    if value.startswith("www."):
+        value = value[4:]
+    return value
 
 
 @router.get("/stats", response_model=DomainStatsResponse)
@@ -64,9 +80,9 @@ def list_domains(
         }.get(sort_by, Domain.fetched_date)
 
         if sort_dir == "asc":
-            query = query.order_by(sort_col.asc())
+            query = query.order_by(sort_col.asc(), Domain.id.asc())
         else:
-            query = query.order_by(sort_col.desc())
+            query = query.order_by(sort_col.desc(), Domain.id.desc())
 
         total = query.count()
         domains = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -86,6 +102,7 @@ def export_domains_csv(
     min_score: Optional[float] = Query(None, ge=0, le=100),
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
+    limit: int = Query(2000, ge=1, le=2000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -106,7 +123,7 @@ def export_domains_csv(
     if date_to:
         query = query.filter(Domain.fetched_date <= date_to)
 
-    domains = query.order_by(Domain.fetched_date.desc()).limit(50_000).all()
+    domains = query.order_by(Domain.fetched_date.desc(), Domain.id.desc()).limit(limit).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -133,6 +150,126 @@ def export_domains_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.post("/import/csv", response_model=DomainImportResponse)
+async def import_domains_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig", errors="ignore")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to read CSV file")
+
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+
+    report_rows = []
+    domains_to_insert = []
+    seen = set()
+    total_rows = 0
+    invalid_count = 0
+
+    for idx, row in enumerate(rows):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+
+        candidate = row[0].strip()
+        if idx == 0 and candidate.lower() in {"domain", "domains", "name", "url"}:
+            continue
+
+        total_rows += 1
+        domain = normalize_domain(candidate)
+
+        if not domain or not DOMAIN_REGEX.match(domain):
+            invalid_count += 1
+            report_rows.append({"domain": candidate, "status": "invalid", "reason": "invalid domain format"})
+            continue
+
+        if domain in seen:
+            report_rows.append({"domain": domain, "status": "duplicate", "reason": "duplicate in file"})
+            continue
+
+        seen.add(domain)
+        tld = domain.split(".")[-1]
+        domains_to_insert.append({
+            "name": domain,
+            "tld": tld,
+            "registrar": None,
+            "registered_at": None,
+            "fetched_date": datetime.utcnow(),
+            "check_status": DomainStatus.pending,
+            "is_active": True,
+        })
+
+    imported_count = 0
+    if domains_to_insert:
+        existing_names = set()
+        names = [d["name"] for d in domains_to_insert]
+        for i in range(0, len(names), 1000):
+            rows_chunk = db.query(Domain.name).filter(Domain.name.in_(names[i:i + 1000])).all()
+            existing_names.update(r[0] for r in rows_chunk)
+
+        insert_rows = []
+        for d in domains_to_insert:
+            if d["name"] in existing_names:
+                report_rows.append({"domain": d["name"], "status": "duplicate", "reason": "already exists"})
+            else:
+                insert_rows.append(d)
+
+        if insert_rows:
+            for i in range(0, len(insert_rows), 500):
+                batch = insert_rows[i:i + 500]
+                result = db.execute(mysql_insert(Domain).values(batch).prefix_with("IGNORE"))
+                imported_count += int(result.rowcount or 0)
+                for item in batch:
+                    report_rows.append({"domain": item["name"], "status": "imported", "reason": None})
+
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.fetch_domains,
+            description=f"CSV import: {imported_count} domains imported from {file.filename}",
+            meta={
+                "filename": file.filename,
+                "total_rows": total_rows,
+                "imported_count": imported_count,
+            },
+        ))
+        db.commit()
+
+        if imported_count > 0:
+            try:
+                from app.tasks.domain_tasks import queue_pending_seo_checks
+                queue_pending_seo_checks.delay(limit=min(imported_count, 5000))
+            except Exception:
+                pass
+
+    valid_rows = max(total_rows - invalid_count, 0)
+    duplicate_count = max(total_rows - imported_count - invalid_count, 0)
+
+    report_rows_sorted = sorted(
+        report_rows,
+        key=lambda x: 0 if x["status"] == "imported" else 1 if x["status"] == "duplicate" else 2,
+    )
+    max_report_rows = 500
+    return {
+        "filename": file.filename,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "imported_count": imported_count,
+        "duplicate_count": duplicate_count,
+        "invalid_count": invalid_count,
+        "report_rows": report_rows_sorted[:max_report_rows],
+        "report_truncated": len(report_rows_sorted) > max_report_rows,
+    }
 
 
 @router.get("/fetch/status/{task_id}", response_model=FetchStatusResponse)

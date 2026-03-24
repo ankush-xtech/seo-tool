@@ -75,3 +75,20 @@ class DomainStatsResponse(BaseModel):
     pending_check: int
     checked: int
     avg_seo_score: Optional[float] = None
+
+
+class ImportReportRow(BaseModel):
+    domain: str
+    status: str
+    reason: Optional[str] = None
+
+
+class DomainImportResponse(BaseModel):
+    filename: str
+    total_rows: int
+    valid_rows: int
+    imported_count: int
+    duplicate_count: int
+    invalid_count: int
+    report_rows: list[ImportReportRow]
+    report_truncated: bool = False
