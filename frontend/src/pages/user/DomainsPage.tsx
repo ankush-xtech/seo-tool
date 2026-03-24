@@ -1,8 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import DomainService, { DomainFilters, DomainStatus, Domain } from "../../services/domain.service";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
+
+// Type for recently checked domain from progress endpoint
+interface RecentlyChecked {
+  id: number;
+  name: string;
+  check_status: string;
+  seo_score: number;
+  verdict: string;
+  email: string | null;
+  phone: string | null;
+  checked_at: string;
+}
 
 const STATUS_COLORS: Record<DomainStatus, string> = {
   pending: "badge-warning",
@@ -283,15 +295,28 @@ function DomainDetailDrawer({ domain, onClose }: { domain: Domain; onClose: () =
 }
 
 // ─── Live Check Progress Bar ─────────────────────────────────────────────────
-function CheckProgressBar() {
+function CheckProgressBar({ onRecentlyChecked }: { onRecentlyChecked?: (items: RecentlyChecked[]) => void }) {
+  const lastSinceRef = useRef<string | null>(null);
+
   const { data, refetch } = useQuery({
     queryKey: ["check-progress"],
     queryFn: async () => {
-      const { data } = await api.get("/fetch/check-progress");
+      const params = lastSinceRef.current ? `?since=${encodeURIComponent(lastSinceRef.current)}` : "";
+      const { data } = await api.get(`/fetch/check-progress${params}`);
       return data;
     },
-    refetchInterval: (data) => (data?.running ? 3000 : 10000),
+    refetchInterval: (data) => (data?.running ? 2000 : 10000),
   });
+
+  // Forward recently checked domains to parent for live table updates
+  useEffect(() => {
+    if (data?.recently_checked?.length && onRecentlyChecked) {
+      onRecentlyChecked(data.recently_checked);
+      // Set the watermark so next poll only gets new items
+      const latest = data.recently_checked[data.recently_checked.length - 1];
+      lastSinceRef.current = latest.checked_at;
+    }
+  }, [data?.recently_checked]);
 
   if (!data || (!data.running && data.total === 0)) return null;
 
@@ -300,6 +325,7 @@ function CheckProgressBar() {
   const percent = data.percent || 0;
   const reachable = data.done || 0;
   const failed = data.failed || 0;
+  const running = data.running_in_db || 0;
 
   return (
     <div style={{
@@ -339,6 +365,12 @@ function CheckProgressBar() {
       <div style={{ display: "flex", gap: 20, fontSize: 12, color: "var(--text-muted)" }}>
         <span>✓ <strong style={{ color: "var(--success)" }}>{reachable.toLocaleString()}</strong> reachable</span>
         <span>✗ <strong style={{ color: "var(--danger)" }}>{failed.toLocaleString()}</strong> unreachable</span>
+        {running > 0 && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+            <strong style={{ color: "var(--accent)" }}>{running.toLocaleString()}</strong> checking now
+          </span>
+        )}
         <span>⏳ <strong style={{ color: "var(--warning)" }}>{(data.pending_in_db || 0).toLocaleString()}</strong> still pending</span>
         {!data.running && data.pending_in_db > 0 && (
           <button className="btn-secondary" style={{ fontSize: 11, padding: "0 10px", height: 22, marginLeft: "auto" }}
@@ -366,11 +398,41 @@ export default function DomainsPage() {
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  // Track live status updates from progress endpoint
+  const [liveUpdates, setLiveUpdates] = useState<Map<number, RecentlyChecked>>(new Map());
+  // Track IDs that were recently updated (for highlight animation)
+  const [recentIds, setRecentIds] = useState<Set<number>>(new Set());
+
+  const handleRecentlyChecked = useCallback((items: RecentlyChecked[]) => {
+    if (!items.length) return;
+    setLiveUpdates(prev => {
+      const next = new Map(prev);
+      items.forEach(item => next.set(item.id, item));
+      return next;
+    });
+    // Mark as recently changed for highlight
+    const newIds = new Set(items.map(i => i.id));
+    setRecentIds(prev => new Set([...prev, ...newIds]));
+    // Clear highlight after 3 seconds
+    setTimeout(() => {
+      setRecentIds(prev => {
+        const next = new Set(prev);
+        newIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }, 3000);
+  }, []);
+
   const { data, isLoading } = useQuery({
     queryKey: ["domains", filters],
     queryFn: () => DomainService.list(filters),
-    refetchInterval: autoRefresh ? 10_000 : false,
+    refetchInterval: autoRefresh ? 5_000 : false,
   });
+
+  // Clear live updates when fresh data arrives from server (it already includes the updates)
+  useEffect(() => {
+    if (data) setLiveUpdates(new Map());
+  }, [data]);
 
   const { data: stats } = useQuery({
     queryKey: ["domain-stats"],
@@ -489,7 +551,7 @@ export default function DomainsPage() {
       )}
 
       {/* Live SEO Check Progress Bar */}
-      <CheckProgressBar />
+      <CheckProgressBar onRecentlyChecked={handleRecentlyChecked} />
 
       {/* Filters */}
       <div className="filter-bar">
@@ -571,10 +633,28 @@ export default function DomainsPage() {
               </thead>
               <tbody>
                 {data.domains.map(d => {
-                  const verdict = getVerdictFromResult(d);
+                  // Merge live updates from progress polling into table row
+                  const live = liveUpdates.get(d.id);
+                  const effectiveStatus = (live?.check_status || d.check_status) as DomainStatus;
+                  const effectiveScore = live ? live.seo_score : d.seo_score;
+                  const isRunning = effectiveStatus === "running";
+                  const isJustChecked = recentIds.has(d.id);
+
+                  // Compute verdict using live data if available
+                  const verdict = live
+                    ? (live.check_status === "failed" ? "Unreachable" : live.verdict)
+                    : getVerdictFromResult({ ...d, check_status: effectiveStatus, seo_score: effectiveScore });
                   const vc = verdict ? VERDICT_COLORS[verdict] : null;
+
                   return (
-                    <tr key={d.id}>
+                    <tr key={d.id} style={{
+                      transition: "background 0.5s ease",
+                      background: isJustChecked
+                        ? "rgba(79,124,248,0.08)"
+                        : isRunning
+                          ? "rgba(245,158,11,0.05)"
+                          : undefined,
+                    }}>
                       <td style={{ fontFamily: "var(--font-mono)", fontSize: 12, maxWidth: 220 }}>
                         <a href={`https://${d.name}`} target="_blank" rel="noopener noreferrer"
                           style={{ color: "var(--accent)", display: "flex", alignItems: "center", gap: 4 }}>
@@ -590,46 +670,83 @@ export default function DomainsPage() {
                       <td>
                         {verdict && vc ? (
                           <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px",
-                            borderRadius: 10, background: vc.bg, color: vc.color, whiteSpace: "nowrap" }}>
+                            borderRadius: 10, background: vc.bg, color: vc.color, whiteSpace: "nowrap",
+                            transition: "all 0.3s ease" }}>
                             {verdict}
                           </span>
-                        ) : d.check_status === "pending" ? (
-                          <span style={{ fontSize: 11, color: "var(--text-hint)" }}>Checking…</span>
+                        ) : isRunning ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 5,
+                            fontSize: 11, color: "var(--accent)", fontWeight: 500 }}>
+                            <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                            Checking…
+                          </span>
+                        ) : effectiveStatus === "pending" ? (
+                          <span style={{ fontSize: 11, color: "var(--text-hint)" }}>Waiting…</span>
                         ) : "—"}
                       </td>
                       <td>
-                        {d.seo_score !== null ? (
+                        {effectiveScore !== null && effectiveScore !== undefined ? (
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontWeight: 600, fontSize: 13,
-                              color: scoreBarColor(d.seo_score), minWidth: 28 }}>
-                              {d.seo_score}
+                              color: scoreBarColor(effectiveScore), minWidth: 28,
+                              transition: "color 0.3s ease" }}>
+                              {effectiveScore}
                             </span>
                             <div style={{ width: 50, height: 4, background: "var(--bg3)", borderRadius: 2, overflow: "hidden" }}>
                               <div style={{ height: "100%", borderRadius: 2,
-                                width: `${d.seo_score}%`, background: scoreBarColor(d.seo_score) }} />
+                                width: `${effectiveScore}%`, background: scoreBarColor(effectiveScore),
+                                transition: "width 0.5s ease, background 0.3s ease" }} />
                             </div>
                           </div>
+                        ) : isRunning ? (
+                          <span className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />
                         ) : <span style={{ color: "var(--text-hint)", fontSize: 12 }}>—</span>}
                       </td>
 
-                      {/* Email + Phone — pulled from SEO result dns_data */}
+                      {/* Email + Phone — use live data or lazy load from SEO result */}
                       <td style={{ fontSize: 12 }}>
-                        <EmailCell domainId={d.id} checkStatus={d.check_status} field="email" />
+                        {live?.email ? (
+                          <a href={`mailto:${live.email}`} style={{ color: "var(--accent)", fontSize: 11 }}
+                            onClick={e => e.stopPropagation()}>
+                            {live.email.length > 25 ? live.email.slice(0, 25) + "…" : live.email}
+                          </a>
+                        ) : (
+                          <EmailCell domainId={d.id} checkStatus={effectiveStatus} field="email" />
+                        )}
                       </td>
                       <td style={{ fontSize: 12 }}>
-                        <EmailCell domainId={d.id} checkStatus={d.check_status} field="phone" />
+                        {live?.phone ? (
+                          <a href={`tel:${live.phone}`} style={{ color: "var(--accent)", fontSize: 11 }}
+                            onClick={e => e.stopPropagation()}>
+                            {live.phone.length > 25 ? live.phone.slice(0, 25) + "…" : live.phone}
+                          </a>
+                        ) : (
+                          <EmailCell domainId={d.id} checkStatus={effectiveStatus} field="phone" />
+                        )}
                       </td>
 
                       <td>
-                        <span className={`badge ${STATUS_COLORS[d.check_status]}`}>
-                          {d.check_status}
-                        </span>
+                        {isRunning ? (
+                          <span className="badge badge-info" style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            animation: "pulse 1.5s infinite",
+                          }}>
+                            <span className="spinner" style={{ width: 8, height: 8, borderWidth: 1.5,
+                              borderColor: "currentColor", borderTopColor: "transparent" }} />
+                            running
+                          </span>
+                        ) : (
+                          <span className={`badge ${STATUS_COLORS[effectiveStatus]}`}
+                            style={{ transition: "all 0.3s ease" }}>
+                            {effectiveStatus}
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {d.check_status === "done" && (
+                        {(effectiveStatus === "done" || effectiveStatus === "failed") && (
                           <button className="btn-secondary"
                             style={{ padding: "0 10px", height: 26, fontSize: 11 }}
-                            onClick={() => setSelectedDomain(d)}>
+                            onClick={() => setSelectedDomain({ ...d, check_status: effectiveStatus, seo_score: effectiveScore })}>
                             Details
                           </button>
                         )}
@@ -706,6 +823,11 @@ export default function DomainsPage() {
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        @keyframes fadeHighlight {
+          0% { background: rgba(79,124,248,0.15); }
+          100% { background: transparent; }
+        }
+        tr { transition: background 0.5s ease; }
       `}</style>
     </div>
   );

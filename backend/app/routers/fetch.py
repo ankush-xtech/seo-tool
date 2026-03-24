@@ -36,6 +36,29 @@ _check_progress = {
     "started_at": None,
 }
 
+# Track recently checked domains for real-time UI updates (ring buffer of last 50)
+_recently_checked: list[dict] = []
+_recently_checked_lock = threading.Lock()
+MAX_RECENT = 50
+
+
+def _add_recently_checked(domain_id: int, name: str, status: str, score: float,
+                          verdict: str, email: str | None, phone: str | None):
+    with _recently_checked_lock:
+        _recently_checked.append({
+            "id": domain_id,
+            "name": name,
+            "check_status": status,
+            "seo_score": score,
+            "verdict": verdict,
+            "email": email,
+            "phone": phone,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        })
+        # Keep only the last MAX_RECENT entries
+        if len(_recently_checked) > MAX_RECENT:
+            del _recently_checked[:-MAX_RECENT]
+
 
 # ─── WhoisDS Download ─────────────────────────────────────────────────────────
 
@@ -199,9 +222,11 @@ def check_all_pending_domains_thread():
     Runs in a daemon thread. Fetches pending domains in batches of 100,
     checks them with 10 threads, saves results. Keeps going until all done.
     """
-    global _check_progress
+    global _check_progress, _recently_checked
     _check_progress["running"] = True
     _check_progress["started_at"] = datetime.now(timezone.utc).isoformat()
+    with _recently_checked_lock:
+        _recently_checked.clear()
 
     BATCH = 100
     THREADS = 10
@@ -261,8 +286,8 @@ def check_all_pending_domains_thread():
                     domain_obj = save_db.query(Domain).filter(Domain.id == domain_id).first()
                     if domain_obj:
                         domain_obj.seo_score = float(r["score"])
-                        domain_obj.check_status = (DomainStatus.done if r["reachable"]
-                                                   else DomainStatus.failed)
+                        final_status = DomainStatus.done if r["reachable"] else DomainStatus.failed
+                        domain_obj.check_status = final_status
                         seo = SEOResult(
                             domain_id=domain_id,
                             overall_score=float(r["score"]),
@@ -286,6 +311,17 @@ def check_all_pending_domains_thread():
                             _check_progress["done"] += 1
                         else:
                             _check_progress["failed"] += 1
+
+                        # Track for real-time UI updates
+                        _add_recently_checked(
+                            domain_id=domain_id,
+                            name=name,
+                            status=final_status.value,
+                            score=float(r["score"]),
+                            verdict=r.get("verdict", "Unreachable"),
+                            email=r.get("email"),
+                            phone=r.get("phone"),
+                        )
                 except Exception as e:
                     logger.error(f"[AllCheck] Save error for {name}: {e}")
                     save_db.rollback()
@@ -374,24 +410,40 @@ def run_fetch_now(
 
 
 @router.get("/check-progress")
-def get_check_progress(_: User = Depends(get_current_user)):
-    """Returns live progress of the background SEO check."""
+def get_check_progress(
+    since: Optional[str] = Query(None, description="ISO timestamp — only return domains checked after this time"),
+    _: User = Depends(get_current_user),
+):
+    """Returns live progress of the background SEO check + recently checked domains."""
     prog = _check_progress.copy()
     pending_in_db = 0
+    running_in_db = 0
     db = SessionLocal()
     try:
         pending_in_db = db.query(Domain).filter(
             Domain.check_status.in_([DomainStatus.pending, DomainStatus.running])
         ).count()
+        running_in_db = db.query(Domain).filter(
+            Domain.check_status == DomainStatus.running
+        ).count()
     finally:
         db.close()
+
+    # Return recently checked domains (optionally filtered by timestamp)
+    with _recently_checked_lock:
+        if since:
+            recent = [d for d in _recently_checked if d["checked_at"] > since]
+        else:
+            recent = list(_recently_checked[-20:])  # default: last 20
 
     return {
         **prog,
         "pending_in_db": pending_in_db,
+        "running_in_db": running_in_db,
         "percent": round(
             (prog["done"] + prog["failed"]) / prog["total"] * 100, 1
         ) if prog["total"] > 0 else 0,
+        "recently_checked": recent,
     }
 
 
