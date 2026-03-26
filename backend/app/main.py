@@ -7,7 +7,7 @@ import logging
 
 from app.core.config import settings
 from app.db.session import Base, engine, check_db_connection
-from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports, fetch
+from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports, fetch, maps
 
 logging.basicConfig(
     level=logging.INFO if not settings.DEBUG else logging.DEBUG,
@@ -120,6 +120,7 @@ app.include_router(watchlist.router, prefix="/api/v1")
 app.include_router(alerts.router,    prefix="/api/v1")
 app.include_router(reports.router,   prefix="/api/v1")
 app.include_router(fetch.router,     prefix="/api/v1")
+app.include_router(maps.router,      prefix="/api/v1")
 
 
 @app.get("/api/health", tags=["Health"])

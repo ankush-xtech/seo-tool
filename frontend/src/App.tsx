@@ -15,6 +15,7 @@ import ReportsPage from "./pages/user/ReportsPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
+import MapsSearchPage from "./pages/admin/MapsSearchPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="/admin"            element={A(<AdminDashboardPage />)} />
             <Route path="/admin/users"      element={A(<AdminUsersPage />)} />
             <Route path="/admin/audit-logs" element={A(<AuditLogsPage />)} />
+            <Route path="/admin/maps"       element={A(<MapsSearchPage />)} />
 
             <Route path="/" element={<RootRedirect />} />
             <Route path="*" element={<RootRedirect />} />

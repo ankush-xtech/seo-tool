@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
-    SEO_CHECK_RATE_LIMIT: int = 10
+    SEO_CHECK_RATE_LIMIT: int = 50
 
     # Admin bootstrap
     FIRST_ADMIN_EMAIL: str = "admin@yourdomain.com"
@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     # Domain Fetcher
     DOMAINBIGDATA_API_KEY: Optional[str] = None
     ICANN_CZDS_TOKEN: Optional[str] = None
+
+    # Google Maps / SerpAPI
+    SERPAPI_KEY: Optional[str] = None
+    MAPS_SCRAPE_DELAY: float = 1.5
+    MAPS_EMAIL_SCRAPE_DELAY: float = 1.0
+    MAPS_MAX_RESULTS: int = 60
+    MAPS_WORKER_THREADS: int = 5
 
     class Config:
         env_file = ".env"
