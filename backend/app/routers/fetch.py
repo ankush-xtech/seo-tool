@@ -39,6 +39,7 @@ _check_progress = {
 # Track recently checked domains for real-time UI updates (ring buffer of last 50)
 _recently_checked: list[dict] = []
 _recently_checked_lock = threading.Lock()
+_progress_lock = threading.Lock()
 MAX_RECENT = 50
 
 
@@ -215,12 +216,72 @@ def quick_seo_check(domain: str) -> dict:
     return result
 
 
+def _check_and_store_domain_result(domain_id: int, name: str) -> tuple[bool, bool]:  #  // multithreading 
+    """
+    Thread worker: run SEO check and persist results for one domain.
+    Returns (was_saved, reachable).
+    """
+    save_db = SessionLocal()
+    try:
+        result = quick_seo_check(name)
+        domain_obj = save_db.query(Domain).filter(Domain.id == domain_id).first()
+        if not domain_obj:
+            return False, False
+
+        domain_obj.seo_score = float(result["score"])
+        final_status = DomainStatus.done if result["reachable"] else DomainStatus.failed
+        domain_obj.check_status = final_status
+
+        seo = SEOResult(
+            domain_id=domain_id,
+            overall_score=float(result["score"]),
+            https_score=100.0 if result["check_https"] == "pass" else 0.0,
+            meta_score=100.0 if result["check_meta"] == "pass" else (50.0 if result["check_meta"] == "warn" else 0.0),
+            heading_score=100.0 if result["check_h1"] == "pass" else 0.0,
+            mobile_score=100.0 if result["check_viewport"] == "pass" else 0.0,
+            dns_data={
+                "title": result.get("title", ""),
+                "description": result.get("description", ""),
+                "email": result.get("email"),
+                "phone": result.get("phone"),
+                "verdict": result.get("verdict"),
+                "reachable": result.get("reachable"),
+            }
+        )
+        save_db.add(seo)
+        save_db.commit()
+
+        _add_recently_checked(
+            domain_id=domain_id,
+            name=name,
+            status=final_status.value,
+            score=float(result["score"]),
+            verdict=result.get("verdict", "Unreachable"),
+            email=result.get("email"),
+            phone=result.get("phone"),
+        )
+        return True, bool(result["reachable"])
+    except Exception as e:
+        logger.error(f"[AllCheck] Save error for {name}: {e}")
+        save_db.rollback()
+        try:
+            d = save_db.query(Domain).filter(Domain.id == domain_id).first()
+            if d:
+                d.check_status = DomainStatus.failed
+                save_db.commit()
+        except Exception:
+            pass
+        return False, False
+    finally:
+        save_db.close()
+
+
 # ─── Background: check ALL pending domains in batches ────────────────────────
 
 def check_all_pending_domains_thread():
     """
-    Runs in a daemon thread. Fetches pending domains in batches of 100,
-    checks them with 10 threads, saves results. Keeps going until all done.
+    Runs in a daemon thread. Fetches pending domains in batches of 200,
+    checks them with 20 threads, saves results. Keeps going until all done.
     """
     global _check_progress, _recently_checked
     _check_progress["running"] = True
@@ -228,8 +289,8 @@ def check_all_pending_domains_thread():
     with _recently_checked_lock:
         _recently_checked.clear()
 
-    BATCH = 100
-    THREADS = 10
+    BATCH = 200
+    THREADS = 20
 
     db = SessionLocal()
     try:
@@ -267,8 +328,7 @@ def check_all_pending_domains_thread():
                 d.check_status = DomainStatus.running
             db.commit()
 
-            domain_map = {d.name: d.id for d in batch}
-            domain_names = list(domain_map.keys())
+            work_items = [(d.id, d.name) for d in batch]
         except Exception as e:
             logger.error(f"[AllCheck] Batch fetch error: {e}")
             db.close()
@@ -276,68 +336,27 @@ def check_all_pending_domains_thread():
         finally:
             db.close()
 
-        # Run checks in parallel
+        # Run checks + DB saves in parallel
         with ThreadPoolExecutor(max_workers=THREADS) as executor:
-            future_map = {executor.submit(quick_seo_check, name): name
-                         for name in domain_names}
+            future_map = {
+                executor.submit(_check_and_store_domain_result, domain_id, name): (domain_id, name)
+                for domain_id, name in work_items
+            }
             for future in as_completed(future_map):
-                name = future_map[future]
-                domain_id = domain_map[name]
-                save_db = SessionLocal()
+                _domain_id, name = future_map[future]
                 try:
-                    r = future.result()
-                    domain_obj = save_db.query(Domain).filter(Domain.id == domain_id).first()
-                    if domain_obj:
-                        domain_obj.seo_score = float(r["score"])
-                        final_status = DomainStatus.done if r["reachable"] else DomainStatus.failed
-                        domain_obj.check_status = final_status
-                        seo = SEOResult(
-                            domain_id=domain_id,
-                            overall_score=float(r["score"]),
-                            https_score=100.0 if r["check_https"] == "pass" else 0.0,
-                            meta_score=100.0 if r["check_meta"] == "pass" else (50.0 if r["check_meta"] == "warn" else 0.0),
-                            heading_score=100.0 if r["check_h1"] == "pass" else 0.0,
-                            mobile_score=100.0 if r["check_viewport"] == "pass" else 0.0,
-                            dns_data={
-                                "title": r.get("title", ""),
-                                "description": r.get("description", ""),
-                                "email": r.get("email"),
-                                "phone": r.get("phone"),
-                                "verdict": r.get("verdict"),
-                                "reachable": r.get("reachable"),
-                            }
-                        )
-                        save_db.add(seo)
-                        save_db.commit()
+                    was_saved, reachable = future.result()
+                    with _progress_lock:
                         processed += 1
-                        if r["reachable"]:
+                        if was_saved and reachable:
                             _check_progress["done"] += 1
                         else:
                             _check_progress["failed"] += 1
-
-                        # Track for real-time UI updates
-                        _add_recently_checked(
-                            domain_id=domain_id,
-                            name=name,
-                            status=final_status.value,
-                            score=float(r["score"]),
-                            verdict=r.get("verdict", "Unreachable"),
-                            email=r.get("email"),
-                            phone=r.get("phone"),
-                        )
                 except Exception as e:
-                    logger.error(f"[AllCheck] Save error for {name}: {e}")
-                    save_db.rollback()
-                    try:
-                        d = save_db.query(Domain).filter(Domain.id == domain_id).first()
-                        if d:
-                            d.check_status = DomainStatus.failed
-                            save_db.commit()
-                    except Exception:
-                        pass
-                    _check_progress["failed"] += 1
-                finally:
-                    save_db.close()
+                    logger.error(f"[AllCheck] Future error for {name}: {e}")
+                    with _progress_lock:
+                        processed += 1
+                        _check_progress["failed"] += 1
 
         logger.info(f"[AllCheck] Progress: {processed:,}/{_check_progress['total']:,}")
 
@@ -357,7 +376,7 @@ def run_fetch_now(
     """
     1. Download all domains from WhoisDS (~70,000)
     2. Store all in database
-    3. Start checking ALL pending domains in background (batches of 100)
+    3. Start checking ALL pending domains in background (batches of 200)
     """
     global _check_progress
     start = time.time()

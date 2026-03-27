@@ -31,6 +31,7 @@ class AuditAction(str, enum.Enum):
     user_updated = "user_updated"
     user_deleted = "user_deleted"
     settings_updated = "settings_updated"
+    maps_search = "maps_search"
 
 
 class AlertCondition(str, enum.Enum):
@@ -43,6 +44,13 @@ class AlertCondition(str, enum.Enum):
 class NotificationStatus(str, enum.Enum):
     unread = "unread"
     read = "read"
+
+
+class MapSearchStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
 
 
 class User(Base):
@@ -185,3 +193,50 @@ class AuditLog(Base):
     meta = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     user = relationship("User", back_populates="audit_logs")
+
+
+class MapSearchQuery(Base):
+    __tablename__ = "map_search_queries"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    query_text = Column(String(500), nullable=False)
+    category = Column(String(191), nullable=True, index=True)
+    city = Column(String(191), nullable=True, index=True)
+    state = Column(String(50), nullable=True)
+    status = Column(Enum(MapSearchStatus), default=MapSearchStatus.pending, index=True)
+    results_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    provider = Column(String(50), default="serpapi")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    listings = relationship("BusinessListing", back_populates="search_query", cascade="all, delete-orphan")
+    user = relationship("User")
+    __table_args__ = (
+        Index("ix_map_search_category_city", "category", "city"),
+    )
+
+
+class BusinessListing(Base):
+    __tablename__ = "business_listings"
+    id = Column(Integer, primary_key=True, index=True)
+    search_query_id = Column(Integer, ForeignKey("map_search_queries.id", ondelete="CASCADE"), nullable=False, index=True)
+    place_id = Column(String(255), nullable=True, index=True)
+    business_name = Column(String(500), nullable=False)
+    address = Column(Text, nullable=True)
+    city = Column(String(191), nullable=True, index=True)
+    state = Column(String(50), nullable=True)
+    postcode = Column(String(20), nullable=True)
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    website = Column(String(500), nullable=True)
+    rating = Column(Float, nullable=True)
+    reviews_count = Column(Integer, nullable=True)
+    category = Column(String(255), nullable=True, index=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    search_query = relationship("MapSearchQuery", back_populates="listings")
+    __table_args__ = (
+        Index("ix_listing_name_city", "business_name", "city"),
+    )
