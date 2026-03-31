@@ -1,9 +1,15 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import secrets
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
     # App
     APP_NAME: str = "SEO Automation Tool"
     APP_ENV: str = "development"
@@ -70,9 +76,17 @@ class Settings(BaseSettings):
     MAPS_MAX_RESULTS: int = 60
     MAPS_WORKER_THREADS: int = 5
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # Outreach / SendGrid
+    SENDGRID_API_KEY: Optional[str] = None
+    OUTREACH_FROM_EMAIL: str = "hello@youragency.com"
+    OUTREACH_FROM_NAME: str = "SEO Agency"
+    OUTREACH_SCORE_THRESHOLD: int = 70
+    OUTREACH_SEO_WORKERS: int = 5
+
+    # AI provider keys
+    ANTHROPIC_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    AI_EMAIL_MODEL: str = "claude-haiku-4-5"
 
 
 settings = Settings()
