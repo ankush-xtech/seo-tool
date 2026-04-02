@@ -7,7 +7,7 @@ import logging
 
 from app.core.config import settings
 from app.db.session import Base, engine, check_db_connection
-from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports, fetch, maps
+from app.routers import auth, users, domains, seo, dashboard, watchlist, alerts, reports, fetch, maps, outreach, track
 
 logging.basicConfig(
     level=logging.INFO if not settings.DEBUG else logging.DEBUG,
@@ -121,6 +121,8 @@ app.include_router(alerts.router,    prefix="/api/v1")
 app.include_router(reports.router,   prefix="/api/v1")
 app.include_router(fetch.router,     prefix="/api/v1")
 app.include_router(maps.router,      prefix="/api/v1")
+app.include_router(outreach.router,  prefix="/api/v1")
+app.include_router(track.router)  # No /api/v1 prefix — short URLs for tracking pixels
 
 
 @app.get("/api/health", tags=["Health"])

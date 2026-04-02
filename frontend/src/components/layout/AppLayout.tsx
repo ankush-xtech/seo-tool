@@ -23,6 +23,8 @@ const NAV_ITEMS = [
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg> },
   { to: "/admin/maps", label: "Maps Search", adminOnly: true,
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1C5.2 1 3 3.2 3 6c0 3.5 5 9 5 9s5-5.5 5-9c0-2.8-2.2-5-5-5z" stroke="currentColor" strokeWidth="1.2"/><circle cx="8" cy="6" r="2" stroke="currentColor" strokeWidth="1.2"/></svg> },
+  { to: "/admin/outreach", label: "Outreach", adminOnly: true,
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 4l7 4.5L15 4M1 4v8l7 4 7-4V4M1 4l7-3 7 3" stroke="currentColor" strokeWidth="1.2"/></svg> },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
