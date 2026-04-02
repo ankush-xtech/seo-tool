@@ -15,6 +15,8 @@ const NAV_ITEMS = [
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 00-4 4v3l-1.5 2h11L12 9V6a4 4 0 00-4-4z" stroke="currentColor" strokeWidth="1.2"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" strokeWidth="1.2"/></svg> },
   { to: "/reports", label: "Reports",
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 2h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2"/><path d="M5 6h6M5 9h4M5 12h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg> },
+  { to: "/competitors", label: "Competitors",
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 3v10M12 3v10M1 8h14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M4 5h8M4 11h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="2 2"/></svg> },
   { to: "/admin", label: "Admin Panel", end: true, adminOnly: true,
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3" width="13" height="10" rx="2" stroke="currentColor" strokeWidth="1.2"/><path d="M5 7h6M5 10h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg> },
   { to: "/admin/users", label: "Users", adminOnly: true,

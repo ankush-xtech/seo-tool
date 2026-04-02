@@ -32,6 +32,7 @@ class AuditAction(str, enum.Enum):
     user_deleted = "user_deleted"
     settings_updated = "settings_updated"
     maps_search = "maps_search"
+    competitor_analysis = "competitor_analysis"
 
 
 class AlertCondition(str, enum.Enum):
@@ -51,6 +52,19 @@ class MapSearchStatus(str, enum.Enum):
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class CompetitorAnalysisStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class InsightSeverity(str, enum.Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
 
 
 class User(Base):
@@ -240,3 +254,92 @@ class BusinessListing(Base):
     __table_args__ = (
         Index("ix_listing_name_city", "business_name", "city"),
     )
+
+
+class CompetitorAnalysis(Base):
+    __tablename__ = "competitor_analyses"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    business_listing_id = Column(Integer, ForeignKey("business_listings.id", ondelete="SET NULL"), nullable=True)
+    target_domain = Column(String(500), nullable=False)
+    target_category = Column(String(255), nullable=True)
+    target_city = Column(String(191), nullable=True)
+    target_state = Column(String(50), nullable=True)
+    status = Column(Enum(CompetitorAnalysisStatus), default=CompetitorAnalysisStatus.pending, index=True)
+    discovery_method = Column(String(50), default="serpapi")
+    competitors_found = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    user = relationship("User")
+    business_listing = relationship("BusinessListing")
+    competitors = relationship("Competitor", back_populates="analysis", cascade="all, delete-orphan")
+    insights = relationship("CompetitorInsight", back_populates="analysis", cascade="all, delete-orphan")
+    __table_args__ = (
+        Index("ix_comp_analysis_user", "user_id"),
+        Index("ix_comp_analysis_target", "target_domain"),
+    )
+
+    def __repr__(self):
+        return f"<CompetitorAnalysis {self.target_domain} [{self.status}]>"
+
+
+class Competitor(Base):
+    __tablename__ = "competitors"
+    id = Column(Integer, primary_key=True, index=True)
+    analysis_id = Column(Integer, ForeignKey("competitor_analyses.id", ondelete="CASCADE"), nullable=False, index=True)
+    domain = Column(String(500), nullable=False)
+    business_name = Column(String(500), nullable=True)
+    discovery_source = Column(String(50), nullable=True)
+    search_rank = Column(Integer, nullable=True)
+    is_target = Column(Boolean, default=False)
+
+    # SEO scores (from our internal SEO engine)
+    seo_overall_score = Column(Float, nullable=True)
+    seo_dns_score = Column(Float, nullable=True)
+    seo_https_score = Column(Float, nullable=True)
+    seo_meta_score = Column(Float, nullable=True)
+    seo_robots_score = Column(Float, nullable=True)
+    seo_sitemap_score = Column(Float, nullable=True)
+    seo_speed_score = Column(Float, nullable=True)
+    seo_mobile_score = Column(Float, nullable=True)
+    seo_ssl_score = Column(Float, nullable=True)
+    seo_social_meta_score = Column(Float, nullable=True)
+    seo_heading_score = Column(Float, nullable=True)
+
+    # Semrush metrics
+    semrush_rank = Column(Integer, nullable=True)
+    organic_traffic = Column(Integer, nullable=True)
+    organic_keywords = Column(Integer, nullable=True)
+    domain_authority = Column(Float, nullable=True)
+    backlinks_total = Column(Integer, nullable=True)
+    referring_domains = Column(Integer, nullable=True)
+
+    # Google Maps data
+    listing_id = Column(Integer, ForeignKey("business_listings.id", ondelete="SET NULL"), nullable=True)
+    maps_rating = Column(Float, nullable=True)
+    maps_reviews = Column(Integer, nullable=True)
+
+    semrush_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    analysis = relationship("CompetitorAnalysis", back_populates="competitors")
+    listing = relationship("BusinessListing")
+    __table_args__ = (
+        Index("ix_competitor_domain", "domain"),
+    )
+
+    def __repr__(self):
+        return f"<Competitor {self.domain} score={self.seo_overall_score}>"
+
+
+class CompetitorInsight(Base):
+    __tablename__ = "competitor_insights"
+    id = Column(Integer, primary_key=True, index=True)
+    analysis_id = Column(Integer, ForeignKey("competitor_analyses.id", ondelete="CASCADE"), nullable=False, index=True)
+    insight_type = Column(String(50), nullable=False)
+    severity = Column(Enum(InsightSeverity), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    meta = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    analysis = relationship("CompetitorAnalysis", back_populates="insights")

@@ -88,5 +88,13 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     AI_EMAIL_MODEL: str = "claude-haiku-4-5"
 
+    # Semrush API
+    SEMRUSH_API_KEY: Optional[str] = None
+    SEMRUSH_DATABASE: str = "au"
+
+    # Competitor Analysis
+    COMPETITOR_MAX_RESULTS: int = 10
+    COMPETITOR_WORKER_THREADS: int = 3
+
 
 settings = Settings()
