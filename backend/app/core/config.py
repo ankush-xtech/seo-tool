@@ -1,9 +1,15 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import secrets
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
     # App
     APP_NAME: str = "SEO Automation Tool"
     APP_ENV: str = "development"
@@ -105,6 +111,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+    # AI provider keys
+    ANTHROPIC_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    AI_EMAIL_MODEL: str = "claude-haiku-4-5"
 
 
 settings = Settings()
