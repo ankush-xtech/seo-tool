@@ -32,6 +32,8 @@ class AuditAction(str, enum.Enum):
     user_deleted = "user_deleted"
     settings_updated = "settings_updated"
     maps_search = "maps_search"
+    outreach_seo_check = "outreach_seo_check"
+    outreach_email_sent = "outreach_email_sent"
 
 
 class AlertCondition(str, enum.Enum):
@@ -47,6 +49,22 @@ class NotificationStatus(str, enum.Enum):
 
 
 class MapSearchStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class OutreachEmailStatus(str, enum.Enum):
+    draft = "draft"
+    sent = "sent"
+    opened = "opened"
+    clicked = "clicked"
+    replied = "replied"
+    bounced = "bounced"
+
+
+class SEOCheckStatus(str, enum.Enum):
     pending = "pending"
     running = "running"
     done = "done"
@@ -237,6 +255,66 @@ class BusinessListing(Base):
     raw_data = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     search_query = relationship("MapSearchQuery", back_populates="listings")
+    seo_check = relationship("ListingSEOCheck", back_populates="listing", uselist=False, cascade="all, delete-orphan")
+    outreach_emails = relationship("OutreachEmail", back_populates="listing", cascade="all, delete-orphan")
     __table_args__ = (
         Index("ix_listing_name_city", "business_name", "city"),
     )
+
+
+class ListingSEOCheck(Base):
+    __tablename__ = "listing_seo_checks"
+    id = Column(Integer, primary_key=True, index=True)
+    business_listing_id = Column(Integer, ForeignKey("business_listings.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    overall_score = Column(Integer, default=0)
+    verdict = Column(String(50), default="Pending")
+    # Technical checks
+    check_ssl = Column(String(10), default="pending")
+    check_robots = Column(String(10), default="pending")
+    check_sitemap = Column(String(10), default="pending")
+    check_canonical = Column(String(10), default="pending")
+    check_mobile = Column(String(10), default="pending")
+    check_speed = Column(String(10), default="pending")
+    load_time = Column(Float, nullable=True)
+    # On-page checks
+    check_h1 = Column(String(10), default="pending")
+    check_title = Column(String(10), default="pending")
+    title_text = Column(String(255), nullable=True)
+    title_length = Column(Integer, nullable=True)
+    check_description = Column(String(10), default="pending")
+    description_text = Column(String(500), nullable=True)
+    description_length = Column(Integer, nullable=True)
+    check_alt_tags = Column(String(10), default="pending")
+    images_total = Column(Integer, default=0)
+    images_missing_alt = Column(Integer, default=0)
+    # Local SEO checks
+    check_business_name = Column(String(10), default="pending")
+    check_phone = Column(String(10), default="pending")
+    check_local_schema = Column(String(10), default="pending")
+    check_social_links = Column(String(10), default="pending")
+    check_contact_page = Column(String(10), default="pending")
+    # Meta
+    status = Column(Enum(SEOCheckStatus), default=SEOCheckStatus.pending, index=True)
+    error_message = Column(Text, nullable=True)
+    checked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    listing = relationship("BusinessListing", back_populates="seo_check")
+
+
+class OutreachEmail(Base):
+    __tablename__ = "outreach_emails"
+    id = Column(Integer, primary_key=True, index=True)
+    business_listing_id = Column(Integer, ForeignKey("business_listings.id", ondelete="CASCADE"), nullable=False, index=True)
+    seo_check_id = Column(Integer, ForeignKey("listing_seo_checks.id", ondelete="SET NULL"), nullable=True)
+    to_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    body_html = Column(Text, nullable=False)
+    status = Column(Enum(OutreachEmailStatus), default=OutreachEmailStatus.draft, index=True)
+    sendgrid_message_id = Column(String(255), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    opened_at = Column(DateTime(timezone=True), nullable=True)
+    clicked_at = Column(DateTime(timezone=True), nullable=True)
+    replied_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    listing = relationship("BusinessListing", back_populates="outreach_emails")
+    seo_check = relationship("ListingSEOCheck")

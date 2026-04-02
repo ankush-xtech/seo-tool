@@ -83,6 +83,9 @@ export default function MapsSearchPage() {
   const [progress, setProgress] = useState<MapsProgress | null>(null);
   const [polling, setPolling] = useState(false);
 
+  // ── Checkbox selection ───────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
   // Presets
   const { data: presets } = useQuery<MapsPresets>({
     queryKey: ["maps-presets"],
@@ -114,6 +117,11 @@ export default function MapsSearchPage() {
     queryFn: () => MapsService.listListings(effectiveFilters),
     staleTime: 5_000,
   });
+
+  // Clear selection when page or filters change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filters.page, filterSearch, filterCategory, filterCity, filterHasEmail, filterHasPhone, filterMinRating]);
 
   // Progress polling
   useEffect(() => {
@@ -189,6 +197,40 @@ export default function MapsSearchPage() {
       has_phone: filterHasPhone || undefined,
     });
   };
+
+  // ── Checkbox handlers ────────────────────────────────────────────────────
+  const pageIds = listings?.items.map((b: BusinessListing) => b.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const somePageSelected = pageIds.some((id) => selectedIds.has(id)) && !allPageSelected;
+
+  const handleSelectAll = () => {
+    if (allPageSelected) {
+      // Deselect all on this page
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      // Select all on this page
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  };
+
+  const handleSelectRow = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => setSelectedIds(new Set());
 
   const totalPages = listings ? Math.ceil(listings.total / (filters.per_page || 50)) : 0;
 
@@ -400,11 +442,31 @@ export default function MapsSearchPage() {
         </select>
       </div>
 
-      {/* Results count */}
-      {listings && (
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13, color: "#aaa" }}>
-          <span>{listings.total.toLocaleString()} businesses</span>
-          <span>Page {filters.page} of {totalPages}</span>
+      {/* Results count + selection bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 13, color: "#aaa" }}>
+        <span>{listings?.total.toLocaleString() ?? 0} businesses</span>
+        <span>Page {filters.page} of {totalPages}</span>
+      </div>
+
+      {/* Selection banner */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 12,
+          background: "#1e2a45", border: "1px solid #4f7cf8", borderRadius: 8,
+          padding: "8px 14px", marginBottom: 10, fontSize: 13,
+        }}>
+          <span style={{ color: "#4f7cf8", fontWeight: 600 }}>
+            ✓ {selectedIds.size} business{selectedIds.size !== 1 ? "es" : ""} selected
+          </span>
+          <button
+            onClick={handleClearSelection}
+            style={{
+              marginLeft: "auto", background: "transparent", border: "1px solid #4a5068",
+              color: "#aaa", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 12,
+            }}
+          >
+            Clear selection
+          </button>
         </div>
       )}
 
@@ -413,6 +475,17 @@ export default function MapsSearchPage() {
         <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
+              {/* Header checkbox — selects/deselects all on current page */}
+              <th style={{ width: 40, textAlign: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  ref={(el) => { if (el) el.indeterminate = somePageSelected; }}
+                  onChange={handleSelectAll}
+                  style={{ cursor: "pointer", width: 15, height: 15 }}
+                  title={allPageSelected ? "Deselect all on this page" : "Select all on this page"}
+                />
+              </th>
               <th>Business Name</th>
               <th>Address</th>
               <th>Phone</th>
@@ -426,55 +499,70 @@ export default function MapsSearchPage() {
           <tbody>
             {listings?.items.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", padding: 40, color: "#666" }}>
+                <td colSpan={9} style={{ textAlign: "center", padding: 40, color: "#666" }}>
                   {filters.search_query_id
                     ? "No results for this search. Try a different query."
                     : "No business listings yet. Start a search above!"}
                 </td>
               </tr>
             )}
-            {listings?.items.map((b: BusinessListing) => (
-              <tr key={b.id}>
-                <td style={{ fontWeight: 500, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {b.business_name}
-                </td>
-                <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#aaa" }}>
-                  {b.address || "—"}
-                </td>
-                <td>
-                  {b.phone ? (
-                    <a href={`tel:${b.phone}`} style={{ color: "#4f7cf8" }}>{b.phone}</a>
-                  ) : (
-                    <span style={{ color: "#5a6278" }}>—</span>
-                  )}
-                </td>
-                <td>
-                  {b.email ? (
-                    <a href={`mailto:${b.email}`} style={{ color: "#22c55e" }}>{b.email}</a>
-                  ) : (
-                    <span style={{ color: "#5a6278" }}>—</span>
-                  )}
-                </td>
-                <td>
-                  {b.website ? (
-                    <a href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
-                       target="_blank" rel="noopener noreferrer"
-                       style={{ color: "#4f7cf8", maxWidth: 150, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {b.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-                    </a>
-                  ) : (
-                    <span style={{ color: "#5a6278" }}>—</span>
-                  )}
-                </td>
-                <td><Stars rating={b.rating} /></td>
-                <td style={{ color: b.reviews_count ? "#ccc" : "#5a6278" }}>
-                  {b.reviews_count ?? "—"}
-                </td>
-                <td style={{ color: "#aaa", fontSize: "0.85em", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {b.category || "—"}
-                </td>
-              </tr>
-            ))}
+            {listings?.items.map((b: BusinessListing) => {
+              const isSelected = selectedIds.has(b.id);
+              return (
+                <tr
+                  key={b.id}
+                  style={{ background: isSelected ? "#1a2540" : undefined }}
+                >
+                  {/* Row checkbox */}
+                  <td style={{ textAlign: "center", width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleSelectRow(b.id)}
+                      style={{ cursor: "pointer", width: 15, height: 15 }}
+                    />
+                  </td>
+                  <td style={{ fontWeight: 500, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {b.business_name}
+                  </td>
+                  <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#aaa" }}>
+                    {b.address || "—"}
+                  </td>
+                  <td>
+                    {b.phone ? (
+                      <a href={`tel:${b.phone}`} style={{ color: "#4f7cf8" }}>{b.phone}</a>
+                    ) : (
+                      <span style={{ color: "#5a6278" }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {b.email ? (
+                      <a href={`mailto:${b.email}`} style={{ color: "#22c55e" }}>{b.email}</a>
+                    ) : (
+                      <span style={{ color: "#5a6278" }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {b.website ? (
+                      <a href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
+                         target="_blank" rel="noopener noreferrer"
+                         style={{ color: "#4f7cf8", maxWidth: 150, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {b.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                      </a>
+                    ) : (
+                      <span style={{ color: "#5a6278" }}>—</span>
+                    )}
+                  </td>
+                  <td><Stars rating={b.rating} /></td>
+                  <td style={{ color: b.reviews_count ? "#ccc" : "#5a6278" }}>
+                    {b.reviews_count ?? "—"}
+                  </td>
+                  <td style={{ color: "#aaa", fontSize: "0.85em", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {b.category || "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
