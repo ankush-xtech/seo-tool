@@ -28,12 +28,12 @@ function RootRedirect() {
   return <Navigate to={isAdmin ? "/admin" : "/dashboard"} replace />;
 }
 
-const P = (children: React.ReactNode) => (
-  <ProtectedRoute><AppLayout>{children}</AppLayout></ProtectedRoute>
-);
-const A = (children: React.ReactNode) => (
-  <AdminRoute><AppLayout>{children}</AppLayout></AdminRoute>
-);
+function ProtectedPage({ children }: { children: React.ReactNode }) {
+  return <ProtectedRoute><AppLayout>{children}</AppLayout></ProtectedRoute>;
+}
+function AdminPage({ children }: { children: React.ReactNode }) {
+  return <AdminRoute><AppLayout>{children}</AppLayout></AdminRoute>;
+}
 
 export default function App() {
   return (
@@ -44,18 +44,17 @@ export default function App() {
             <Route path="/login"    element={<GuestRoute><LoginPage /></GuestRoute>} />
             <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
 
-            <Route path="/dashboard"   element={P(<DashboardPage />)} />
-            <Route path="/domains"     element={P(<DomainsPage />)} />
-            <Route path="/seo-checker" element={P(<SEOCheckerPage />)} />
-            <Route path="/watchlist"   element={P(<WatchlistPage />)} />
-            <Route path="/alerts"      element={P(<AlertsPage />)} />
-            <Route path="/reports"     element={P(<ReportsPage />)} />
+            <Route path="/dashboard"   element={<ProtectedPage><DashboardPage /></ProtectedPage>} />
+            <Route path="/domains"     element={<ProtectedPage><DomainsPage /></ProtectedPage>} />
+            <Route path="/seo-checker" element={<ProtectedPage><SEOCheckerPage /></ProtectedPage>} />
+            <Route path="/watchlist"   element={<ProtectedPage><WatchlistPage /></ProtectedPage>} />
+            <Route path="/alerts"      element={<ProtectedPage><AlertsPage /></ProtectedPage>} />
+            <Route path="/reports"     element={<ProtectedPage><ReportsPage /></ProtectedPage>} />
 
-            <Route path="/admin"            element={A(<AdminDashboardPage />)} />
-            <Route path="/admin/users"      element={A(<AdminUsersPage />)} />
-            <Route path="/admin/audit-logs" element={A(<AuditLogsPage />)} />
-            <Route path="/admin/maps"       element={A(<MapsSearchPage />)} />
-            <Route path="/admin/outreach"   element={A(<OutreachPage />)} />
+            <Route path="/admin"            element={<AdminPage><AdminDashboardPage /></AdminPage>} />
+            <Route path="/admin/users"      element={<AdminPage><AdminUsersPage /></AdminPage>} />
+            <Route path="/admin/audit-logs" element={<AdminPage><AuditLogsPage /></AdminPage>} />
+            <Route path="/admin/maps"       element={<AdminPage><MapsSearchPage /></AdminPage>} />
 
             <Route path="/" element={<RootRedirect />} />
             <Route path="*" element={<RootRedirect />} />
