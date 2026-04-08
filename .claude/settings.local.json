@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(find /c/projects/seo-tool -type f \\\\\\(-name *.md -o -name LICENSE* -o -name SECURITY* \\\\\\))",
-      "Bash(grep -r \"raw\\\\|execute\\\\|exec\\\\|eval\\\\|__import__\" /c/projects/seo-tool/backend/app --include=*.py)"
+      "Bash(grep -r \"raw\\\\|execute\\\\|exec\\\\|eval\\\\|__import__\" /c/projects/seo-tool/backend/app --include=*.py)",
+      "Bash(docker --version)",
+      "Bash(docker-compose --version)",
+      "Bash(docker compose:*)",
+      "Bash(docker info:*)",
+      "Bash(npm --version)",
+      "Bash(npm install:*)",
+      "Bash(xargs head:*)"
     ]
   }
 }

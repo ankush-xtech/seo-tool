@@ -24,7 +24,11 @@ export default function LoginPage() {
       const dest = from || (isAdmin ? "/admin" : "/dashboard");
       navigate(dest, { replace: true });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Login failed. Please try again.");
+      if (err?.code === "ERR_NETWORK" || err?.code === "ECONNABORTED") {
+        setError("Cannot connect to server. Please ensure the backend is running.");
+      } else {
+        setError(err?.response?.data?.detail || "Login failed. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
