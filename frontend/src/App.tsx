@@ -55,6 +55,7 @@ export default function App() {
             <Route path="/admin/users"      element={<AdminPage><AdminUsersPage /></AdminPage>} />
             <Route path="/admin/audit-logs" element={<AdminPage><AuditLogsPage /></AdminPage>} />
             <Route path="/admin/maps"       element={<AdminPage><MapsSearchPage /></AdminPage>} />
+            <Route path="/admin/outreach"   element={<AdminPage><OutreachPage /></AdminPage>} />
 
             <Route path="/" element={<RootRedirect />} />
             <Route path="*" element={<RootRedirect />} />
