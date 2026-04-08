@@ -79,6 +79,70 @@ class Settings(BaseSettings):
     # Outreach / SendGrid
     SENDGRID_API_KEY: Optional[str] = None
     OUTREACH_FROM_EMAIL: str = "hello@youragency.com"
+    # Public URL of this backend — used to embed open/click tracking in emails.
+    # Example: http://yourserver.com:8000  or  https://api.yourdomain.com
+    # Leave blank to disable tracking (emails still send fine without it).
+    TRACKING_BASE_URL: Optional[str] = None
+    OUTREACH_FROM_NAME: str = "SEO Agency"
+    OUTREACH_SCORE_THRESHOLD: int = 70
+    OUTREACH_SEO_WORKERS: int = 5
+
+    # Company branding — shown in both template and AI emails
+    COMPANY_NAME: str = "Sparksview"
+    COMPANY_COUNTRY: str = "Australia"
+    COMPANY_SPECIALIZATION: str = "SEO and digital growth solutions"
+    COMPANY_EMAIL: str = "devadmin@sparkview.com.au"
+    COMPANY_WEBSITE: str = "www.sparkview.com.au"
+    COMPANY_TYPE: str = "IT company"
+    # Static subject line — same for ALL outreach emails (AI + template)
+    OUTREACH_SUBJECT: str = "Free SEO Audit Insights for Your Website"
+
+    # Claude AI (Anthropic) — for AI-generated email content
+    ANTHROPIC_API_KEY: Optional[str] = None
+    # Model for email generation. Default: claude-haiku-4-5 (cheap, fast).
+    # Use claude-opus-4-6 for highest quality (more expensive).
+    AI_EMAIL_MODEL: str = "claude-haiku-4-5"
+
+    # Groq AI — free alternative for AI email generation
+    # Get free key at: https://console.groq.com
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Outreach / SendGrid
+    SENDGRID_API_KEY: Optional[str] = None
+    OUTREACH_FROM_EMAIL: str = "hello@youragency.com"
+    # Public URL of this backend — used to embed open/click tracking in emails.
+    # Example: http://yourserver.com:8000  or  https://api.yourdomain.com
+    # Leave blank to disable tracking (emails still send fine without it).
+    TRACKING_BASE_URL: Optional[str] = None
+    OUTREACH_FROM_NAME: str = "SEO Agency"
+    OUTREACH_SCORE_THRESHOLD: int = 70
+    OUTREACH_SEO_WORKERS: int = 5
+
+    # Company branding — shown in both template and AI emails
+    COMPANY_NAME: str = "Sparksview"
+    COMPANY_COUNTRY: str = "Australia"
+    COMPANY_SPECIALIZATION: str = "SEO and digital growth solutions"
+    COMPANY_EMAIL: str = "devadmin@sparkview.com.au"
+    COMPANY_WEBSITE: str = "www.sparkview.com.au"
+    COMPANY_TYPE: str = "IT company"
+    # Static subject line — same for ALL outreach emails (AI + template)
+    OUTREACH_SUBJECT: str = "Free SEO Audit Insights for Your Website"
+
+    # Claude AI (Anthropic) — for AI-generated email content
+    ANTHROPIC_API_KEY: Optional[str] = None
+    # Model for email generation. Default: claude-haiku-4-5 (cheap, fast).
+    # Use claude-opus-4-6 for highest quality (more expensive).
+    AI_EMAIL_MODEL: str = "claude-haiku-4-5"
+
+    # Groq AI — free alternative for AI email generation
+    # Get free key at: https://console.groq.com
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Outreach / SendGrid
+    SENDGRID_API_KEY: Optional[str] = None
+    OUTREACH_FROM_EMAIL: str = "hello@youragency.com"
     OUTREACH_FROM_NAME: str = "SEO Agency"
     OUTREACH_SCORE_THRESHOLD: int = 70
     OUTREACH_SEO_WORKERS: int = 5

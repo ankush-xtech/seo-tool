@@ -16,6 +16,7 @@ import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
 import MapsSearchPage from "./pages/admin/MapsSearchPage";
+import OutreachPage from "./pages/admin/OutreachPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
