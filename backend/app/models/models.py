@@ -315,6 +315,7 @@ class OutreachEmail(Base):
     opened_at = Column(DateTime(timezone=True), nullable=True)
     clicked_at = Column(DateTime(timezone=True), nullable=True)
     replied_at = Column(DateTime(timezone=True), nullable=True)
+    preview_url = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     listing = relationship("BusinessListing", back_populates="outreach_emails")
     seo_check = relationship("ListingSEOCheck")

@@ -313,6 +313,7 @@ def list_leads(
             email_opened_at=latest_email.opened_at if latest_email else None,
             email_clicked_at=latest_email.clicked_at if latest_email else None,
             email_replied_at=latest_email.replied_at if latest_email else None,
+            preview_url=latest_email.preview_url if latest_email else None,
         ))
 
     return LeadList(items=items, total=total, page=page, per_page=per_page)
@@ -527,6 +528,158 @@ def send_emails(
     return result
 
 
+@router.post("/generate-previews")
+def generate_previews(
+    data: SendSelectedEmailsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Generate preview websites for selected businesses and deploy to Vercel.
+
+    Does NOT send any email. Just generates + deploys preview sites so admin
+    can review them before sending. The preview_url is stored in a draft
+    OutreachEmail record so it can be reused when actually sending.
+    """
+    if not data.listing_ids:
+        raise HTTPException(400, "No listing IDs provided")
+    if len(data.listing_ids) > 20:
+        raise HTTPException(400, "Max 20 businesses per preview batch")
+
+    # Guards
+    if not settings.VERCEL_API_TOKEN:
+        raise HTTPException(400, "VERCEL_API_TOKEN not configured in .env")
+    if not settings.GROQ_API_KEY and not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(400, "No AI provider configured (GROQ_API_KEY or ANTHROPIC_API_KEY)")
+
+    rows = db.query(BusinessListing, ListingSEOCheck).join(
+        ListingSEOCheck,
+        ListingSEOCheck.business_listing_id == BusinessListing.id,
+    ).filter(
+        BusinessListing.id.in_(data.listing_ids),
+        BusinessListing.email.isnot(None),
+        BusinessListing.email != "",
+        ListingSEOCheck.status == SEOCheckStatus.done,
+    ).all()
+
+    if not rows:
+        raise HTTPException(400, "None of the selected businesses have email + completed SEO check.")
+
+    from app.services.maps.preview_site_generator import generate_preview_site
+    from app.services.maps.vercel_deployer import deploy_to_vercel
+
+    # ── Prepare data for parallel processing (read DB data before threads) ──
+    jobs = []
+    for listing, seo in rows:
+        check_dict = {col: getattr(seo, col) for col in [
+            "check_ssl", "check_robots", "check_sitemap", "check_canonical",
+            "check_mobile", "check_speed", "load_time", "check_h1",
+            "check_title", "title_length", "check_description", "description_length",
+            "check_alt_tags", "images_total", "images_missing_alt",
+            "check_business_name", "check_phone", "check_local_schema",
+            "check_social_links", "check_contact_page",
+        ]}
+        problems = get_seo_problems(check_dict)
+        jobs.append({
+            "listing_id": listing.id,
+            "business_name": listing.business_name,
+            "website": listing.website or "",
+            "city": listing.city or "",
+            "category": listing.category or "",
+            "phone": listing.phone,
+            "email": listing.email,
+            "seo_score": seo.overall_score,
+            "seo_id": seo.id,
+            "problems": problems,
+        })
+
+    # ── Generate + deploy in parallel (4 workers) ───────────────────────
+    def _generate_and_deploy(job: dict) -> dict:
+        """Thread worker: generate HTML with AI + deploy to Vercel."""
+        try:
+            site_html = generate_preview_site(
+                business_name=job["business_name"],
+                website=job["website"],
+                city=job["city"],
+                category=job["category"],
+                seo_score=job["seo_score"],
+                problems=job["problems"],
+                phone=job["phone"],
+                email=job["email"],
+            )
+            if not site_html:
+                return {**job, "preview_url": None, "error": "AI returned empty HTML"}
+
+            preview_url = deploy_to_vercel(
+                html_content=site_html,
+                site_name=job["business_name"],
+            )
+            if not preview_url:
+                return {**job, "preview_url": None, "error": "Vercel deployment failed"}
+
+            return {**job, "preview_url": preview_url, "error": None}
+        except Exception as e:
+            return {**job, "preview_url": None, "error": str(e)}
+
+    # Groq free tier: 30 RPM, 6,000 TPM — each site uses ~10k tokens
+    # Sequential is safest to avoid rate limits. Add small delay between calls.
+    import time
+    completed_jobs = []
+
+    for i, job in enumerate(jobs):
+        if i > 0:
+            time.sleep(2)  # 2s delay between calls to stay under rate limits
+        completed_jobs.append(_generate_and_deploy(job))
+
+    # ── Save results to DB (sequential — DB sessions aren't thread-safe) ──
+    generated = 0
+    failed = 0
+    errors = []
+    results = []
+
+    for job in completed_jobs:
+        if job["error"]:
+            failed += 1
+            errors.append(f"{job['business_name']}: {job['error']}")
+            logger.error(f"Preview failed for {job['business_name']}: {job['error']}")
+            continue
+
+        try:
+            existing = db.query(OutreachEmail).filter(
+                OutreachEmail.business_listing_id == job["listing_id"],
+            ).order_by(OutreachEmail.created_at.desc()).first()
+
+            if existing:
+                existing.preview_url = job["preview_url"]
+            else:
+                draft = OutreachEmail(
+                    business_listing_id=job["listing_id"],
+                    seo_check_id=job["seo_id"],
+                    to_email=job["email"],
+                    subject="(preview pending)",
+                    body_html="(preview pending)",
+                    status=OutreachEmailStatus.draft,
+                    preview_url=job["preview_url"],
+                )
+                db.add(draft)
+
+            db.commit()
+            generated += 1
+            results.append({
+                "listing_id": job["listing_id"],
+                "business_name": job["business_name"],
+                "preview_url": job["preview_url"],
+            })
+        except Exception as e:
+            db.rollback()
+            failed += 1
+            errors.append(f"{job['business_name']}: DB save error: {e}")
+
+    result = {"generated": generated, "failed": failed, "total": len(rows), "previews": results}
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 @router.post("/send-selected-emails")
 def send_selected_emails(
     data: SendSelectedEmailsRequest,
@@ -556,6 +709,13 @@ def send_selected_emails(
             "No AI provider configured. Add ANTHROPIC_API_KEY or GROQ_API_KEY to .env"
         )
 
+    # ── Guard: preview requires Vercel token ───────────────────────────────
+    if data.with_preview and not settings.VERCEL_API_TOKEN:
+        raise HTTPException(
+            400,
+            "Preview sites require VERCEL_API_TOKEN. Add it to .env or disable preview."
+        )
+
     # ── Guard: email sending provider ────────────────────────────────────────
     if not settings.SENDGRID_API_KEY and not (settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD):
         raise HTTPException(400, "No email provider configured. Set SMTP or SENDGRID in .env")
@@ -581,6 +741,7 @@ def send_selected_emails(
     sent_count = 0
     failed_count = 0
     skipped_count = 0
+    previews_generated = 0
     errors = []
 
     for listing, seo in rows:
@@ -630,6 +791,47 @@ def send_selected_emails(
             if not email_data:
                 raise RuntimeError("Email generator returned empty result")
 
+            # ── Attach preview URL if one was pre-generated ────────────
+            preview_url = None
+            if data.with_preview:
+                # Check if a preview URL already exists (from /generate-previews)
+                existing_draft = db.query(OutreachEmail).filter(
+                    OutreachEmail.business_listing_id == listing.id,
+                    OutreachEmail.preview_url.isnot(None),
+                ).order_by(OutreachEmail.created_at.desc()).first()
+
+                if existing_draft and existing_draft.preview_url:
+                    preview_url = existing_draft.preview_url
+                    previews_generated += 1
+                    logger.info(f"Reusing existing preview URL: {preview_url}")
+                else:
+                    # No pre-generated preview — generate on the fly
+                    try:
+                        from app.services.maps.preview_site_generator import generate_preview_site
+                        from app.services.maps.vercel_deployer import deploy_to_vercel
+
+                        site_html = generate_preview_site(
+                            business_name=listing.business_name,
+                            website=listing.website or "",
+                            city=listing.city or "",
+                            category=listing.category or "",
+                            seo_score=seo.overall_score,
+                            problems=problems,
+                            phone=listing.phone,
+                            email=listing.email,
+                        )
+                        if site_html:
+                            preview_url = deploy_to_vercel(html_content=site_html, site_name=listing.business_name)
+                            if preview_url:
+                                previews_generated += 1
+                    except Exception as e:
+                        logger.error(f"Preview generation error for {listing.business_name}: {e}")
+
+                # Inject preview CTA button into email if we have a URL
+                if preview_url:
+                    from app.services.maps.outreach_email import inject_preview_button
+                    email_data["body_html"] = inject_preview_button(email_data["body_html"], preview_url)
+
             # ── Save first (draft) so we get the DB id for tracking URLs ──
             outreach = OutreachEmail(
                 business_listing_id=listing.id,
@@ -638,6 +840,7 @@ def send_selected_emails(
                 subject=email_data["subject"],
                 body_html=email_data["body_html"],
                 status=OutreachEmailStatus.draft,
+                preview_url=preview_url,
             )
             db.add(outreach)
             db.flush()  # assigns outreach.id without committing
@@ -684,6 +887,7 @@ def send_selected_emails(
         "sent": sent_count,
         "failed": failed_count,
         "skipped": skipped_count,
+        "previews_generated": previews_generated,
         "total_requested": len(data.listing_ids),
         "mode": data.mode,
     }

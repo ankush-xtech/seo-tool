@@ -9,7 +9,16 @@
       "Bash(docker info:*)",
       "Bash(npm --version)",
       "Bash(npm install:*)",
-      "Bash(xargs head:*)"
+      "Bash(xargs head:*)",
+      "Bash(python -c \"from app.core.config import settings; print\\(''VERCEL_TOKEN:'', bool\\(settings.VERCEL_API_TOKEN\\)\\); print\\(''GROQ_KEY:'', bool\\(settings.GROQ_API_KEY\\)\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(curl -sI \"https://preview-test-site-3mw6iu4jt-ankush-kumars-projects-fffb6119.vercel.app\")",
+      "Bash(curl -sI \"https://preview-test-public-ankush-kumars-projects-fffb6119.vercel.app\")",
+      "Bash(npm list:*)",
+      "Bash(node generate_doc.js)",
+      "Bash(python -c ':*)",
+      "WebSearch",
+      "Bash(python)"
     ]
   }
 }

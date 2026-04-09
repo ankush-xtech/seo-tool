@@ -40,11 +40,29 @@ async def lifespan(app: FastAPI):
     if check_db_connection():
         logger.info("✅ Database connected")
         Base.metadata.create_all(bind=engine)
+        _run_schema_migrations()
         bootstrap_admin()
     else:
         logger.error("❌ Database connection failed!")
     yield
     logger.info("Shutting down...")
+
+
+def _run_schema_migrations():
+    """Add new columns to existing tables (safe to re-run)."""
+    from sqlalchemy import text
+    from app.db.session import engine as _engine
+    migrations = [
+        ("outreach_emails", "preview_url", "ALTER TABLE outreach_emails ADD COLUMN preview_url VARCHAR(500) NULL"),
+    ]
+    with _engine.connect() as conn:
+        for table, column, sql in migrations:
+            try:
+                conn.execute(text(f"SELECT {column} FROM {table} LIMIT 0"))
+            except Exception:
+                logger.info(f"Adding column {table}.{column}")
+                conn.execute(text(sql))
+                conn.commit()
 
 
 def bootstrap_admin():
