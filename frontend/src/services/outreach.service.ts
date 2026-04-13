@@ -16,6 +16,7 @@ export interface Lead {
   email_opened_at: string | null;
   email_clicked_at: string | null;
   email_replied_at: string | null;
+  preview_url: string | null;
 }
 
 export interface LeadList {
@@ -122,9 +123,18 @@ const OutreachService = {
     return data;
   },
 
-  async sendSelectedEmails(listing_ids: number[], mode: "ai" | "template") {
-    const { data } = await api.post("/outreach/send-selected-emails", { listing_ids, mode });
-    return data as { sent: number; failed: number; skipped: number; total_requested: number; mode: string; errors?: string[] };
+  async generatePreviews(listing_ids: number[]) {
+    // Each lead takes ~15-20s for AI generation + Vercel deploy
+    const timeout = listing_ids.length * 25_000;
+    const { data } = await api.post("/outreach/generate-previews", { listing_ids, mode: "ai" }, { timeout });
+    return data as { generated: number; failed: number; total: number; previews: { listing_id: number; business_name: string; preview_url: string }[]; errors?: string[] };
+  },
+
+  async sendSelectedEmails(listing_ids: number[], mode: "ai" | "template", with_preview: boolean = false) {
+    // Preview generation + Vercel deploy can take ~20s per lead — use longer timeout
+    const timeout = with_preview ? 120_000 : 30_000;
+    const { data } = await api.post("/outreach/send-selected-emails", { listing_ids, mode, with_preview }, { timeout });
+    return data as { sent: number; failed: number; skipped: number; previews_generated?: number; total_requested: number; mode: string; errors?: string[] };
   },
 
   async updateEmailStatus(emailId: number, newStatus: string) {

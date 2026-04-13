@@ -100,6 +100,8 @@ export default function OutreachPage() {
   const [polling, setPolling] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendingSelected, setSendingSelected] = useState(false);
+  const [generatingPreviews, setGeneratingPreviews] = useState(false);
+  const [withPreview, setWithPreview] = useState(false);
 
   // ── Checkbox selection ───────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -208,15 +210,17 @@ export default function OutreachPage() {
   const handleSendSelected = async (mode: "ai" | "template") => {
     const ids = Array.from(selectedIds);
     const label = mode === "ai" ? "AI" : "Template";
-    if (!confirm(`Send ${label} email to ${ids.length} selected business${ids.length !== 1 ? "es" : ""}?`)) return;
+    const previewNote = withPreview ? " + preview site" : "";
+    if (!confirm(`Send ${label} email${previewNote} to ${ids.length} selected business${ids.length !== 1 ? "es" : ""}?`)) return;
 
     setSendingSelected(true);
     try {
-      const result = await OutreachService.sendSelectedEmails(ids, mode);
+      const result = await OutreachService.sendSelectedEmails(ids, mode, withPreview);
       const header = result.failed > 0
         ? (result.sent > 0 ? `⚠️ ${label} emails completed with errors` : `❌ ${label} email sending failed`)
         : `✅ ${label} emails sent`;
       let msg = `${header}\n\nSent: ${result.sent}\nFailed: ${result.failed}`;
+      if (result.previews_generated) msg += `\nPreview sites generated: ${result.previews_generated}`;
       if (result.skipped > 0) msg += `\nSkipped (no email / SEO not checked): ${result.skipped}`;
       if (result.errors?.length) msg += `\n\nErrors:\n${result.errors.slice(0, 3).join("\n")}`;
       alert(msg);
@@ -224,9 +228,37 @@ export default function OutreachPage() {
       refetchLeads();
       refetchStats();
     } catch (err: any) {
-      alert(err.response?.data?.detail || `Failed to send ${label} emails`);
+      const detail = err.response?.data?.detail;
+      const status = err.response?.status;
+      const msg = detail
+        ? `${detail}`
+        : err.code === "ERR_NETWORK" || err.code === "ECONNABORTED"
+        ? "Request timed out or server unreachable. The preview site generation may take longer — try with fewer leads or without preview."
+        : `Failed to send ${label} emails`;
+      alert(`${status ? `[${status}] ` : ""}${msg}`);
     } finally {
       setSendingSelected(false);
+    }
+  };
+
+  const handleGeneratePreviews = async () => {
+    const ids = Array.from(selectedIds);
+    if (!confirm(`Generate preview websites for ${ids.length} selected business${ids.length !== 1 ? "es" : ""}?\n\nThis takes ~15-20 seconds per lead. You can review the preview links before sending emails.`)) return;
+    setGeneratingPreviews(true);
+    try {
+      const result = await OutreachService.generatePreviews(ids);
+      let msg = `✅ Preview generation complete\n\nGenerated: ${result.generated}\nFailed: ${result.failed}`;
+      if (result.previews?.length) {
+        msg += `\n\nPreview links are now visible in the "Preview" column.\nReview them, then send emails with the preview toggle ON.`;
+      }
+      if (result.errors?.length) msg += `\n\nErrors:\n${result.errors.slice(0, 3).join("\n")}`;
+      alert(msg);
+      setSelectedIds(new Set());
+      refetchLeads();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to generate previews");
+    } finally {
+      setGeneratingPreviews(false);
     }
   };
 
@@ -275,6 +307,44 @@ export default function OutreachPage() {
           >
             📋 {sendingSelected ? "Sending..." : `Mail by Template${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
           </button>
+
+          {/* ── Generate Previews button ── */}
+          <button
+            onClick={handleGeneratePreviews}
+            disabled={generatingPreviews || selectedIds.size === 0}
+            title={selectedIds.size === 0 ? "Select records first" : `Generate preview websites for ${selectedIds.size} selected (review before sending)`}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: selectedIds.size === 0 ? "#2a2d35" : "#7c3aed",
+              color: selectedIds.size === 0 ? "#666" : "#fff",
+              border: "none", borderRadius: 6,
+              padding: "7px 14px", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer",
+              fontWeight: 600, fontSize: 13, transition: "background 0.2s",
+            }}
+          >
+            🌐 {generatingPreviews ? "Generating..." : `Generate Previews${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+          </button>
+
+          {/* ── Preview toggle ── */}
+          <label
+            title="Include preview website link when sending emails"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: withPreview ? "#0891b2" : "#1a1d23",
+              border: withPreview ? "1px solid #0891b2" : "1px solid #2a2d35",
+              borderRadius: 6, padding: "7px 14px", cursor: "pointer",
+              fontSize: 13, fontWeight: 600, transition: "all 0.2s",
+              color: withPreview ? "#fff" : "#888",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={withPreview}
+              onChange={(e) => setWithPreview(e.target.checked)}
+              style={{ accentColor: "#0891b2" }}
+            />
+            🌐 Preview Sites
+          </label>
         </div>
       </div>
 
@@ -385,6 +455,7 @@ export default function OutreachPage() {
               <th>Phone</th>
               <th>Email Sent</th>
               <th>Opened</th>
+              <th>Preview</th>
             </tr>
           </thead>
           <tbody>
@@ -474,6 +545,22 @@ export default function OutreachPage() {
                         title={`Opened: ${new Date(lead.email_opened_at).toLocaleString()}`}
                         style={{ color: "#f59e0b", fontWeight: 600, cursor: "default", fontSize: 16 }}
                       >✅</span>
+                    ) : <span style={{ color: "#5a6278" }}>—</span>}
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {lead.preview_url ? (
+                      <a
+                        href={lead.preview_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`View preview: ${lead.preview_url}`}
+                        style={{
+                          color: "#0891b2", textDecoration: "none", fontWeight: 600,
+                          fontSize: 14, display: "inline-flex", alignItems: "center", gap: 4,
+                        }}
+                      >
+                        🌐 View
+                      </a>
                     ) : <span style={{ color: "#5a6278" }}>—</span>}
                   </td>
                 </tr>

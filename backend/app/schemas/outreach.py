@@ -22,6 +22,7 @@ class LeadPublic(BaseModel):
     email_opened_at: Optional[datetime] = None
     email_clicked_at: Optional[datetime] = None
     email_replied_at: Optional[datetime] = None
+    preview_url: Optional[str] = None
 
 
 class LeadList(BaseModel):
@@ -66,3 +67,4 @@ class EmailPreview(BaseModel):
 class SendSelectedEmailsRequest(BaseModel):
     listing_ids: list[int]
     mode: str = "ai"  # "ai" or "template"
+    with_preview: bool = False  # generate + deploy preview website to Vercel

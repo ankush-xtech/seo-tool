@@ -59,6 +59,49 @@ def inject_tracking(html: str, email_id: int, base_url: str) -> str:
     return html
 
 
+def inject_preview_button(body_html: str, preview_url: str) -> str:
+    """Inject a 'View Your Preview Website' CTA button into the email body.
+
+    Inserts the button block before the sign-off paragraph
+    ('Looking forward' or 'Best regards').
+    """
+    button_html = f"""
+    <div style="text-align:center;margin:28px 0;">
+        <p style="color:#2c3e50;margin-bottom:12px;font-size:14px;">
+            We've also created a quick preview of what your improved website could look like:
+        </p>
+        <a href="{preview_url}" target="_blank"
+           style="display:inline-block;background:linear-gradient(135deg,#2563eb,#0891b2);
+                  color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;
+                  font-weight:600;font-size:15px;letter-spacing:0.3px;">
+            🌐 View Your Preview Website
+        </a>
+        <p style="color:#95a5a6;font-size:11px;margin-top:8px;">
+            This is a sample preview — your actual website can look even better!
+        </p>
+    </div>"""
+
+    # Try to insert before "Looking forward" or "Best regards"
+    for marker in ["Looking forward", "Best regards"]:
+        pattern = f"(<p[^>]*>\\s*{marker})"
+        if re.search(pattern, body_html, re.IGNORECASE):
+            body_html = re.sub(
+                pattern,
+                f"{button_html}\n\\1",
+                body_html,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            return body_html
+
+    # Fallback: insert before the last closing </div>
+    last_div = body_html.rfind("</div>")
+    if last_div != -1:
+        body_html = body_html[:last_div] + button_html + "\n" + body_html[last_div:]
+
+    return body_html
+
+
 def generate_email(
     business_name: str,
     website: str,
