@@ -18,7 +18,14 @@
       "Bash(node generate_doc.js)",
       "Bash(python -c ':*)",
       "WebSearch",
-      "Bash(python)"
+      "Bash(python)",
+      "Bash(curl -s \"https://preview-smile-design-final-v7-ankush-kumars-projects-fffb6119.vercel.app\" -o /c/python-projects/seo-tool/preview_test.html)",
+      "Bash(python -m http.server 9999)",
+      "Bash(kill %1)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(xargs kill:*)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 16712 //F)"
     ]
   }
 }
