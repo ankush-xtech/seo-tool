@@ -103,6 +103,13 @@ export default function OutreachPage() {
   const [generatingPreviews, setGeneratingPreviews] = useState(false);
   const [withPreview, setWithPreview] = useState(false);
 
+  // ── Prompt customization modal ──────────────────────────────────────────
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [loadingPrompt, setLoadingPrompt] = useState(false);
+  const [heroImageUrl, setHeroImageUrl] = useState("");
+  const [aboutImageUrl, setAboutImageUrl] = useState("");
+
   // ── Checkbox selection ───────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -215,7 +222,10 @@ export default function OutreachPage() {
 
     setSendingSelected(true);
     try {
-      const result = await OutreachService.sendSelectedEmails(ids, mode, withPreview);
+      const result = await OutreachService.sendSelectedEmails(ids, mode, withPreview, {
+        hero_image_url: heroImageUrl || undefined,
+        about_image_url: aboutImageUrl || undefined,
+      });
       const header = result.failed > 0
         ? (result.sent > 0 ? `⚠️ ${label} emails completed with errors` : `❌ ${label} email sending failed`)
         : `✅ ${label} emails sent`;
@@ -241,13 +251,32 @@ export default function OutreachPage() {
     }
   };
 
+  const handleOpenPromptModal = async () => {
+    setLoadingPrompt(true);
+    try {
+      const defaultPrompt = await OutreachService.getDefaultPrompt();
+      setPromptText(defaultPrompt);
+      setHeroImageUrl("");
+      setAboutImageUrl("");
+      setShowPromptModal(true);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to load default prompt");
+    } finally {
+      setLoadingPrompt(false);
+    }
+  };
+
   const handleGeneratePreviews = async () => {
     const ids = Array.from(selectedIds);
-    if (!confirm(`Generate preview websites for ${ids.length} selected business${ids.length !== 1 ? "es" : ""}?\n\nThis takes ~15-20 seconds per lead. You can review the preview links before sending emails.`)) return;
+    setShowPromptModal(false);
     setGeneratingPreviews(true);
     try {
-      const result = await OutreachService.generatePreviews(ids);
-      let msg = `✅ Preview generation complete\n\nGenerated: ${result.generated}\nFailed: ${result.failed}`;
+      const result = await OutreachService.generatePreviews(ids, {
+        custom_prompt: promptText || undefined,
+        hero_image_url: heroImageUrl || undefined,
+        about_image_url: aboutImageUrl || undefined,
+      });
+      let msg = `Preview generation complete\n\nGenerated: ${result.generated}\nFailed: ${result.failed}`;
       if (result.previews?.length) {
         msg += `\n\nPreview links are now visible in the "Preview" column.\nReview them, then send emails with the preview toggle ON.`;
       }
@@ -310,8 +339,8 @@ export default function OutreachPage() {
 
           {/* ── Generate Previews button ── */}
           <button
-            onClick={handleGeneratePreviews}
-            disabled={generatingPreviews || selectedIds.size === 0}
+            onClick={handleOpenPromptModal}
+            disabled={generatingPreviews || loadingPrompt || selectedIds.size === 0}
             title={selectedIds.size === 0 ? "Select records first" : `Generate preview websites for ${selectedIds.size} selected (review before sending)`}
             style={{
               display: "flex", alignItems: "center", gap: 6,
@@ -322,7 +351,7 @@ export default function OutreachPage() {
               fontWeight: 600, fontSize: 13, transition: "background 0.2s",
             }}
           >
-            🌐 {generatingPreviews ? "Generating..." : `Generate Previews${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+            🌐 {generatingPreviews ? "Generating..." : loadingPrompt ? "Loading..." : `Generate Previews${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
           </button>
 
           {/* ── Preview toggle ── */}
@@ -588,6 +617,180 @@ export default function OutreachPage() {
             style={{ padding: "6px 14px" }}>
             Next →
           </button>
+        </div>
+      )}
+
+      {/* ── Prompt Customization Modal ── */}
+      {showPromptModal && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.7)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 9999,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPromptModal(false); }}
+        >
+          <div style={{
+            background: "#13151a", borderRadius: 12, padding: 24,
+            width: "90%", maxWidth: 800, maxHeight: "85vh",
+            display: "flex", flexDirection: "column",
+            border: "1px solid #2a2d35", boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          }}>
+            {/* Modal header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 18, color: "#fff" }}>
+                Customize Website Prompt
+              </h2>
+              <button
+                onClick={() => setShowPromptModal(false)}
+                style={{
+                  background: "none", border: "none", color: "#888",
+                  fontSize: 22, cursor: "pointer", padding: "0 4px",
+                }}
+              >
+                x
+              </button>
+            </div>
+
+            {/* Info */}
+            <div style={{
+              background: "#1a1d23", borderRadius: 8, padding: "10px 14px",
+              marginBottom: 12, fontSize: 13, color: "#9ca3af",
+              border: "1px solid #2a2d35",
+            }}>
+              Edit the prompt below to customize the generated website. Use these placeholders — they will be replaced per business:
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                {["{business_name}", "{category}", "{city}", "{phone}", "{email}", "{website}"].map((tag) => (
+                  <code key={tag} style={{
+                    background: "#7c3aed22", color: "#a78bfa", padding: "2px 8px",
+                    borderRadius: 4, fontSize: 12, border: "1px solid #7c3aed44",
+                  }}>{tag}</code>
+                ))}
+              </div>
+            </div>
+
+            {/* Image URL inputs */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4, display: "block" }}>
+                  Hero Banner Image URL
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={heroImageUrl}
+                    onChange={(e) => setHeroImageUrl(e.target.value)}
+                    placeholder="Paste your own image URL (leave empty for default)"
+                    style={{
+                      flex: 1, background: "#0a0c10", color: "#e2e8f0",
+                      border: "1px solid #2a2d35", borderRadius: 6,
+                      padding: "8px 12px", fontSize: 13, outline: "none",
+                    }}
+                  />
+                  {heroImageUrl && (
+                    <img
+                      src={heroImageUrl}
+                      alt="Hero preview"
+                      style={{
+                        width: 40, height: 40, borderRadius: 6,
+                        objectFit: "cover", border: "1px solid #2a2d35",
+                      }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4, display: "block" }}>
+                  About Section Image URL
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={aboutImageUrl}
+                    onChange={(e) => setAboutImageUrl(e.target.value)}
+                    placeholder="Paste your own image URL (leave empty for default)"
+                    style={{
+                      flex: 1, background: "#0a0c10", color: "#e2e8f0",
+                      border: "1px solid #2a2d35", borderRadius: 6,
+                      padding: "8px 12px", fontSize: 13, outline: "none",
+                    }}
+                  />
+                  {aboutImageUrl && (
+                    <img
+                      src={aboutImageUrl}
+                      alt="About preview"
+                      style={{
+                        width: 40, height: 40, borderRadius: 6,
+                        objectFit: "cover", border: "1px solid #2a2d35",
+                      }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              style={{
+                flex: 1, minHeight: 300, background: "#0a0c10",
+                color: "#e2e8f0", border: "1px solid #2a2d35",
+                borderRadius: 8, padding: 14, fontSize: 13,
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                lineHeight: 1.6, resize: "vertical",
+                outline: "none",
+              }}
+              spellCheck={false}
+            />
+
+            {/* Footer buttons */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12 }}>
+              <button
+                onClick={async () => {
+                  try {
+                    const defaultPrompt = await OutreachService.getDefaultPrompt();
+                    setPromptText(defaultPrompt);
+                    setHeroImageUrl("");
+                    setAboutImageUrl("");
+                  } catch { /* ignore */ }
+                }}
+                style={{
+                  background: "none", border: "1px solid #2a2d35",
+                  color: "#9ca3af", borderRadius: 6, padding: "8px 16px",
+                  cursor: "pointer", fontSize: 13,
+                }}
+              >
+                Reset to Default
+              </button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setShowPromptModal(false)}
+                  style={{
+                    background: "none", border: "1px solid #2a2d35",
+                    color: "#ccc", borderRadius: 6, padding: "8px 20px",
+                    cursor: "pointer", fontSize: 13,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGeneratePreviews}
+                  disabled={!promptText.trim()}
+                  style={{
+                    background: "#7c3aed", color: "#fff",
+                    border: "none", borderRadius: 6, padding: "8px 24px",
+                    cursor: promptText.trim() ? "pointer" : "not-allowed",
+                    fontWeight: 600, fontSize: 13, transition: "background 0.2s",
+                  }}
+                >
+                  Confirm & Generate ({selectedIds.size})
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
