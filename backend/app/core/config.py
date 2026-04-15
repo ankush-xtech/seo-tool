@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    APP_NAME: str = "SEO Automation Tool"
+    APP_NAME: str = "SEO Automation Tool" 
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = secrets.token_urlsafe(32)
