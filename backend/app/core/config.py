@@ -26,13 +26,19 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = ""
     DB_NAME: str = "seo_automation"
 
+    # Set to true when using cloud MySQL that requires SSL (e.g. Aiven)
+    DB_SSL: bool = False
+
     @property
     def DATABASE_URL(self) -> str:
-        return (
+        url = (
             f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
             f"?charset=utf8mb4"
         )
+        if self.DB_SSL:
+            url += "&ssl=true"
+        return url
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
