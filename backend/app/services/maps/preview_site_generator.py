@@ -25,6 +25,8 @@ def _build_preview_prompt(
     email: Optional[str],
     seo_score: int,
     problems: list[str],
+    hero_image_url: Optional[str] = None,
+    about_image_url: Optional[str] = None,
 ) -> str:
     """Build the prompt for generating a preview website."""
     from app.core.config import settings
@@ -63,8 +65,9 @@ def _build_preview_prompt(
             about_photo = a_photo
             break
 
-    hero_img = f"https://images.unsplash.com/{hero_photo}?w=1600&q=80"
-    about_img = f"https://images.unsplash.com/{about_photo}?w=800&q=80"
+    # Use custom image URLs if provided, otherwise use category-based Unsplash
+    hero_img = hero_image_url or f"https://images.unsplash.com/{hero_photo}?w=1600&q=80"
+    about_img = about_image_url or f"https://images.unsplash.com/{about_photo}?w=800&q=80"
 
     return f"""Build a dark premium single-page website. Output ONLY raw HTML starting with <!DOCTYPE html>. No explanations.
 
@@ -102,7 +105,7 @@ BUILD THESE 8 SECTIONS (all visible, no hidden elements):
 
 5. SERVICES: padding:100px 0, bg:var(--bg). Centered .stitle.grad-text. Grid: display:grid; grid-template-columns:repeat(3,1fr); gap:32px (MUST have 32px gap, not less). 6 cards each: emoji in 72px circle, h3 title, p desc. Use 6 REAL service names for a {category} (e.g. for dentist: "General Dentistry","Cosmetic Dentistry","Teeth Whitening","Dental Implants","Orthodontics","Emergency Care"). Mobile: 1col.
 
-6. STATS: padding:80px 0, bg:var(--grad). Grid: repeat(4,1fr), gap:40px. Numbers in 'Playfair Display' 48px white. No card background on stats — just numbers + labels directly on gradient. Mobile: 2col.
+6. STATS: padding:80px 0, bg:var(--grad). Use .wrap container (max-width:1200px, margin:0 auto). Grid: display:grid; grid-template-columns:repeat(4,1fr); gap:40px; text-align:center. Each stat: number in 'Playfair Display' 48px white, label in 14px rgba(255,255,255,0.8). No card background — just numbers + labels directly on gradient. Mobile: grid-template-columns:repeat(2,1fr).
 
 7. TESTIMONIALS: padding:100px 0. Centered .stitle. Grid: repeat(3,1fr), gap:32px. 3 cards: quote mark 64px --pri opacity:0.3, gold stars, italic quote, reviewer name. Write realistic reviews for {category}. Mobile: 1col.
 
@@ -111,6 +114,26 @@ BUILD THESE 8 SECTIONS (all visible, no hidden elements):
 SCRIPT: Only nav scroll (scrollY>50 adds .scrolled class with bg+blur). No IntersectionObserver.
 
 Start with <!DOCTYPE html>."""
+
+
+
+
+def get_default_prompt_template() -> str:
+    """Return the default prompt with placeholder variables for the frontend editor.
+
+    Uses placeholders like {business_name}, {category}, {city} etc.
+    that will be substituted per-business when generating.
+    """
+    return _build_preview_prompt(
+        business_name="{business_name}",
+        website="{website}",
+        city="{city}",
+        category="{category}",
+        phone="{phone}",
+        email="{email}",
+        seo_score=0,
+        problems=[],
+    )
 
 
 def _parse_html_response(raw: str) -> Optional[str]:
@@ -195,6 +218,9 @@ def generate_preview_site(
     problems: list[str],
     phone: Optional[str] = None,
     email: Optional[str] = None,
+    custom_prompt: Optional[str] = None,
+    hero_image_url: Optional[str] = None,
+    about_image_url: Optional[str] = None,
 ) -> Optional[str]:
     """
     Generate a self-contained HTML website for the business.
@@ -205,16 +231,49 @@ def generate_preview_site(
     """
     from app.core.config import settings
 
-    prompt = _build_preview_prompt(
-        business_name=business_name,
-        website=website,
-        city=city,
-        category=category,
-        phone=phone,
-        email=email,
-        seo_score=seo_score,
-        problems=problems,
-    )
+    if custom_prompt:
+        # Use the custom prompt — substitute business variables
+        prompt = custom_prompt
+        # Replace image URLs in the custom prompt if custom images provided
+        if hero_image_url or about_image_url:
+            import re
+            if hero_image_url:
+                # Replace the hero image URL (appears after Hero= and in bg=url())
+                prompt = re.sub(
+                    r"(Hero=)https?://[^\s|]+",
+                    rf"\1{hero_image_url}",
+                    prompt,
+                )
+                prompt = re.sub(
+                    r"(bg=url\(['\"])https?://[^'\"]+(['\"])",
+                    rf"\g<1>{hero_image_url}\2",
+                    prompt,
+                )
+            if about_image_url:
+                # Replace the about image URL (appears after About= and in img src=)
+                prompt = re.sub(
+                    r"(About=)https?://[^\s|]+",
+                    rf"\1{about_image_url}",
+                    prompt,
+                )
+                prompt = re.sub(
+                    r'(img src=")https?://[^"]+(")',
+                    rf"\1{about_image_url}\2",
+                    prompt,
+                )
+    else:
+        prompt = _build_preview_prompt(
+            business_name=business_name,
+            website=website,
+            city=city,
+            category=category,
+            phone=phone,
+            email=email,
+            seo_score=seo_score,
+            problems=problems,
+            hero_image_url=hero_image_url,
+            about_image_url=about_image_url,
+        )
 
     # ── 1. Try Groq first (free) ─────────────────────────────────────────
     groq_error = None

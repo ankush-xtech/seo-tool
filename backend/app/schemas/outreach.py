@@ -68,3 +68,6 @@ class SendSelectedEmailsRequest(BaseModel):
     listing_ids: list[int]
     mode: str = "ai"  # "ai" or "template"
     with_preview: bool = False  # generate + deploy preview website to Vercel
+    custom_prompt: Optional[str] = None  # override the default website generation prompt
+    hero_image_url: Optional[str] = None  # custom hero banner image URL
+    about_image_url: Optional[str] = None  # custom about section image URL

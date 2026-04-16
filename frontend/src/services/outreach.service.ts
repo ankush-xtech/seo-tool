@@ -123,17 +123,36 @@ const OutreachService = {
     return data;
   },
 
-  async generatePreviews(listing_ids: number[]) {
-    // Each lead takes ~15-20s for AI generation + Vercel deploy
+  async getDefaultPrompt(): Promise<string> {
+    const { data } = await api.get("/outreach/default-prompt");
+    return data.prompt;
+  },
+
+  async generatePreviews(
+    listing_ids: number[],
+    options?: { custom_prompt?: string; hero_image_url?: string; about_image_url?: string },
+  ) {
     const timeout = listing_ids.length * 25_000;
-    const { data } = await api.post("/outreach/generate-previews", { listing_ids, mode: "ai" }, { timeout });
+    const body: Record<string, any> = { listing_ids, mode: "ai" };
+    if (options?.custom_prompt) body.custom_prompt = options.custom_prompt;
+    if (options?.hero_image_url) body.hero_image_url = options.hero_image_url;
+    if (options?.about_image_url) body.about_image_url = options.about_image_url;
+    const { data } = await api.post("/outreach/generate-previews", body, { timeout });
     return data as { generated: number; failed: number; total: number; previews: { listing_id: number; business_name: string; preview_url: string }[]; errors?: string[] };
   },
 
-  async sendSelectedEmails(listing_ids: number[], mode: "ai" | "template", with_preview: boolean = false) {
-    // Preview generation + Vercel deploy can take ~20s per lead — use longer timeout
+  async sendSelectedEmails(
+    listing_ids: number[],
+    mode: "ai" | "template",
+    with_preview: boolean = false,
+    options?: { custom_prompt?: string; hero_image_url?: string; about_image_url?: string },
+  ) {
     const timeout = with_preview ? 120_000 : 30_000;
-    const { data } = await api.post("/outreach/send-selected-emails", { listing_ids, mode, with_preview }, { timeout });
+    const body: Record<string, any> = { listing_ids, mode, with_preview };
+    if (options?.custom_prompt) body.custom_prompt = options.custom_prompt;
+    if (options?.hero_image_url) body.hero_image_url = options.hero_image_url;
+    if (options?.about_image_url) body.about_image_url = options.about_image_url;
+    const { data } = await api.post("/outreach/send-selected-emails", body, { timeout });
     return data as { sent: number; failed: number; skipped: number; previews_generated?: number; total_requested: number; mode: string; errors?: string[] };
   },
 

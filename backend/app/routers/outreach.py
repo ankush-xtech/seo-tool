@@ -528,6 +528,13 @@ def send_emails(
     return result
 
 
+@router.get("/default-prompt")
+def get_default_prompt(current_user: User = Depends(require_admin)):
+    """Return the default website generation prompt template with placeholder variables."""
+    from app.services.maps.preview_site_generator import get_default_prompt_template
+    return {"prompt": get_default_prompt_template()}
+
+
 @router.post("/generate-previews")
 def generate_previews(
     data: SendSelectedEmailsRequest,
@@ -592,10 +599,30 @@ def generate_previews(
             "problems": problems,
         })
 
-    # ── Generate + deploy in parallel (4 workers) ───────────────────────
+    # ── Build per-business custom prompt if provided ─────────────────────
+    custom_prompt_template = data.custom_prompt
+
+    def _resolve_custom_prompt(template: str, job: dict) -> str:
+        """Replace placeholder variables in the custom prompt with actual business data."""
+        return (
+            template
+            .replace("{business_name}", job["business_name"])
+            .replace("{website}", job["website"])
+            .replace("{city}", job["city"])
+            .replace("{category}", job["category"])
+            .replace("{phone}", job["phone"] or "N/A")
+            .replace("{email}", job["email"] or "N/A")
+        )
+
+    # ── Generate + deploy sequentially ─────────────────────────────────
     def _generate_and_deploy(job: dict) -> dict:
         """Thread worker: generate HTML with AI + deploy to Vercel."""
         try:
+            resolved_prompt = (
+                _resolve_custom_prompt(custom_prompt_template, job)
+                if custom_prompt_template
+                else None
+            )
             site_html = generate_preview_site(
                 business_name=job["business_name"],
                 website=job["website"],
@@ -605,6 +632,9 @@ def generate_previews(
                 problems=job["problems"],
                 phone=job["phone"],
                 email=job["email"],
+                custom_prompt=resolved_prompt,
+                hero_image_url=data.hero_image_url,
+                about_image_url=data.about_image_url,
             )
             if not site_html:
                 return {**job, "preview_url": None, "error": "AI returned empty HTML"}
@@ -810,6 +840,19 @@ def send_selected_emails(
                         from app.services.maps.preview_site_generator import generate_preview_site
                         from app.services.maps.vercel_deployer import deploy_to_vercel
 
+                        # Resolve custom prompt if provided
+                        resolved = None
+                        if data.custom_prompt:
+                            resolved = (
+                                data.custom_prompt
+                                .replace("{business_name}", listing.business_name)
+                                .replace("{website}", listing.website or "")
+                                .replace("{city}", listing.city or "")
+                                .replace("{category}", listing.category or "")
+                                .replace("{phone}", listing.phone or "N/A")
+                                .replace("{email}", listing.email or "N/A")
+                            )
+
                         site_html = generate_preview_site(
                             business_name=listing.business_name,
                             website=listing.website or "",
@@ -819,6 +862,9 @@ def send_selected_emails(
                             problems=problems,
                             phone=listing.phone,
                             email=listing.email,
+                            custom_prompt=resolved,
+                            hero_image_url=data.hero_image_url,
+                            about_image_url=data.about_image_url,
                         )
                         if site_html:
                             preview_url = deploy_to_vercel(html_content=site_html, site_name=listing.business_name)
