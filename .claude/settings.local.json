@@ -28,7 +28,9 @@
       "Bash(taskkill //PID 16712 //F)",
       "Bash(npx tsc:*)",
       "Bash(npx vite:*)",
-      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/app/services/maps/preview_site_generator.py', doraise=True\\); py_compile.compile\\('backend/app/routers/outreach.py', doraise=True\\); py_compile.compile\\('backend/app/schemas/outreach.py', doraise=True\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/app/services/maps/preview_site_generator.py', doraise=True\\); py_compile.compile\\('backend/app/routers/outreach.py', doraise=True\\); py_compile.compile\\('backend/app/schemas/outreach.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(git stash:*)",
+      "Bash(git push:*)"
     ]
   }
 }
