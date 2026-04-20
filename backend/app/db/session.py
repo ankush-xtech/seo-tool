@@ -7,6 +7,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+connect_args = {}
+if settings.DB_SSL:
+    connect_args["ssl"] = {"ssl": True}
+
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,        # Reconnect on stale connections
@@ -14,6 +18,7 @@ engine = create_engine(
     max_overflow=20,
     pool_recycle=3600,         # Recycle connections every hour
     echo=settings.DEBUG,       # Log SQL in dev
+    connect_args=connect_args,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

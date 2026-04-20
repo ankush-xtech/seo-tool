@@ -31,14 +31,11 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        url = (
+        return (
             f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
             f"?charset=utf8mb4"
         )
-        if self.DB_SSL:
-            url += "&ssl=true"
-        return url
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
