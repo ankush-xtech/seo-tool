@@ -212,7 +212,7 @@ export default function SEOCheckerPage() {
 
           {/* Check cards */}
           <div style={{ marginTop: 24 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".06em", fontSize: 11 }}>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".06em" }}>
               Detailed Results — click any card to expand
             </div>
             <div className="checks-list">
