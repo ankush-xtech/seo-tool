@@ -1,8 +1,11 @@
+import logging
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 engine = create_engine(
     settings.DATABASE_URL,
@@ -33,5 +36,7 @@ def check_db_connection() -> bool:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"DB connection error: {type(e).__name__}: {e}")
+        logger.error(f"DB_HOST={settings.DB_HOST} DB_PORT={settings.DB_PORT} DB_USER={settings.DB_USER} DB_NAME={settings.DB_NAME} DB_SSL={settings.DB_SSL}")
         return False
